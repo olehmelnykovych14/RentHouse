@@ -1,0 +1,7 @@
+# Ignore local secret and runtime files
+config.py
+credentials.json
+*.log
+*.session
+__pycache__/
+*.pyc
