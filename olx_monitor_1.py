@@ -16,6 +16,7 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 from openai import OpenAI
+from supabase import create_client
 
 try:
     import config
@@ -39,12 +40,15 @@ TELEGRAM_CHAT_IDS = [
     ] if cid
 ]
 OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
+SUPABASE_URL = get_secret("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = get_secret("SUPABASE_SERVICE_KEY")
 
 # URL-и для моніторингу (продаж + оренда квартир у Львові — змініть під своє місто)
 MONITOR_URLS = [
     "https://www.olx.ua/uk/nedvizhimost/kvartiry/dolgosrochnaya-arenda-kvartir/lvov/?search%5Bdistrict_id%5D=135&currency=UAH",
     "https://www.olx.ua/uk/nedvizhimost/kvartiry/dolgosrochnaya-arenda-kvartir/lvov/?search%5Bdistrict_id%5D=135&currency=USD"
 ]
+CITY = "Львів"
 
 SEEN_ADS_FILE  = Path("seen_ads.json")
 MIN_OWNER_PROB = 70   # Мінімальний % щоб відправити в Telegram
@@ -60,7 +64,7 @@ CYCLE_PAUSE            = (300, 480)   # 5–8 хвилин між циклами
 # ─────────────────────────────────────────────
 # РІВЕНЬ 1 — ТЕХНІЧНИЙ БАН
 # ─────────────────────────────────────────────
- BANNED_NAME_SUBSTRINGS = [
+BANNED_NAME_SUBSTRINGS = [
    # "АН", "агентство", "realty", "agency", "expert",
    # "нерухомість", "офіс", "ріелтор", "realtor",
    # "estate", "invest", "propert",
@@ -104,6 +108,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 openai_client = OpenAI(api_key=OPENAI_API_KEY)
+supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY) if SUPABASE_URL and SUPABASE_SERVICE_KEY else None
 
 
 # ─────────────────────────────────────────────
@@ -349,14 +354,53 @@ def level2_stop_words(ad: dict) -> tuple[bool, str]:
 
 
 # ─────────────────────────────────────────────
-# РІВЕНЬ 3: AI-АНАЛІЗ
+# РІВЕНЬ 3: AI-АНАЛІЗ + СТРУКТУРОВАНЕ ВИТЯГУВАННЯ
 # ─────────────────────────────────────────────
 
-def level3_ai_analysis(ad: dict) -> tuple[int, str]:
-    """Повертає (probability_of_owner 0-100, пояснення)."""
+LISTING_JSON_SCHEMA = {
+    "name": "listing_extraction",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "probability_of_owner": {"type": "integer", "description": "0-100"},
+            "reasoning": {"type": "string", "description": "Стисле пояснення до 150 слів"},
+            "price": {"type": ["number", "null"]},
+            "currency": {"type": ["string", "null"], "enum": ["UAH", "USD", "EUR", None]},
+            "rooms": {"type": ["integer", "null"]},
+            "district": {"type": ["string", "null"], "description": "Район міста, якщо згадується в тексті"},
+            "has_furniture": {"type": ["boolean", "null"]},
+            "clean_description": {
+                "type": "string",
+                "description": "Опис переписаний без рекламних штампів, посилань на агентство та закликів звертатись",
+            },
+        },
+        "required": [
+            "probability_of_owner", "reasoning", "price", "currency",
+            "rooms", "district", "has_furniture", "clean_description",
+        ],
+        "additionalProperties": False,
+    },
+}
+
+DEFAULT_EXTRACTION = {
+    "probability_of_owner": 50,
+    "reasoning": "Не вдалось отримати оцінку AI",
+    "price": None,
+    "currency": None,
+    "rooms": None,
+    "district": None,
+    "has_furniture": None,
+    "clean_description": "",
+}
+
+
+def level3_ai_analysis(ad: dict) -> dict:
+    """Повертає структурований словник з оцінкою власника та даними оголошення."""
 
     system_prompt = """Ти — детектор посередників на ринку нерухомості України.
-Твоє завдання: визначити, чи є автор оголошення реальним власником квартири, чи замаскованим рієлтором/агентством.
+Твоє завдання: визначити, чи є автор оголошення реальним власником квартири, чи замаскованим рієлтором/агентством,
+і витягнути структуровані дані з тексту оголошення.
 
 КРИТЕРІЇ ВЛАСНИКА (підвищують score):
 + Побутові деталі: згадка сусідів, особистих спогадів, конкретних дрібниць ("балкон виходить на схід", "шафа залишається")
@@ -371,8 +415,8 @@ def level3_ai_analysis(ad: dict) -> tuple[int, str]:
 - Акцент на "чистоті угоди", юридичному супроводі
 - Запрошення на огляд у конкретний офіс
 
-Відповідай ТІЛЬКИ у форматі JSON (без markdown):
-{"probability_of_owner": <0-100>, "reasoning": "<стисле пояснення до 150 слів>"}"""
+Також витягни: ціну (число), валюту, кількість кімнат, район міста (якщо згаданий),
+чи є меблі, і перепиши опис без рекламних штампів та закликів звертатись (clean_description)."""
 
     user_content = f"""Оголошення:
 НАЗВА: {ad['title']}
@@ -391,19 +435,48 @@ def level3_ai_analysis(ad: dict) -> tuple[int, str]:
                 {"role": "user",   "content": user_content},
             ],
             temperature=0.2,
-            max_tokens=300,
+            response_format={"type": "json_schema", "json_schema": LISTING_JSON_SCHEMA},
         )
-        raw = response.choices[0].message.content.strip()
-        # Прибираємо markdown-огортання якщо є
-        raw = re.sub(r"```json\s*|\s*```", "", raw).strip()
-        data = json.loads(raw)
-        return int(data.get("probability_of_owner", 0)), data.get("reasoning", "")
+        data = json.loads(response.choices[0].message.content)
+        data["probability_of_owner"] = int(data.get("probability_of_owner", 0))
+        return data
     except json.JSONDecodeError as e:
         log.warning(f"AI повернув невалідний JSON: {e}")
-        return 50, "Не вдалось отримати оцінку AI"
+        return dict(DEFAULT_EXTRACTION)
     except Exception as e:
         log.error(f"Помилка AI-аналізу: {e}")
-        return 50, f"Помилка: {e}"
+        return {**DEFAULT_EXTRACTION, "reasoning": f"Помилка: {e}"}
+
+
+# ─────────────────────────────────────────────
+# SUPABASE
+# ─────────────────────────────────────────────
+
+def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str) -> None:
+    if supabase is None:
+        return
+
+    row = {
+        "source": "olx",
+        "external_id": ad_id,
+        "url": ad["url"],
+        "title": ad["title"],
+        "raw_description": ad["description"],
+        "clean_description": extraction.get("clean_description", ""),
+        "price": extraction.get("price"),
+        "currency": extraction.get("currency"),
+        "rooms": extraction.get("rooms"),
+        "district": extraction.get("district"),
+        "city": CITY,
+        "has_furniture": extraction.get("has_furniture"),
+        "probability_of_owner": extraction["probability_of_owner"],
+        "ai_reasoning": extraction.get("reasoning", ""),
+        "seller_name": ad["seller_name"],
+    }
+    try:
+        supabase.table("listings").upsert(row, on_conflict="source,external_id").execute()
+    except Exception as e:
+        log.error(f"  ⚠️ Supabase upsert не вдався: {e}")
 
 
 # ─────────────────────────────────────────────
@@ -491,8 +564,14 @@ def process_ad(session: requests.Session, ad_stub: dict, seen_ads: set) -> str |
 
     # Рівень 3
     log.info("  🤖 AI-аналіз...")
-    probability, reasoning = level3_ai_analysis(ad)
+    extraction = level3_ai_analysis(ad)
+    probability = extraction["probability_of_owner"]
+    reasoning = extraction.get("reasoning", "")
     log.info(f"  📊 Ймовірність власника: {probability}%")
+
+    # Зберігаємо в Supabase все, що дійшло до AI-аналізу — поріг застосовується
+    # на рівні фронтенду/запиту, а не на етапі збору даних.
+    upsert_listing_to_supabase(ad, extraction, ad_id)
 
     if probability >= MIN_OWNER_PROB:
         message = format_telegram_message(ad, probability, reasoning)
