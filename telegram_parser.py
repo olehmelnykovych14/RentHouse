@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 from telethon import TelegramClient, events
 from openai import OpenAI
 from supabase import create_client
@@ -42,9 +43,12 @@ OPENAI_API_KEY = get_secret("OPENAI_API_KEY")
 SUPABASE_URL = get_secret("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = get_secret("SUPABASE_SERVICE_KEY")
 CITY = "Львів"
+SUPABASE_BUCKET = "listing-photos"   # публічний bucket у Supabase Storage
+MAX_PHOTOS = 15
 
-# 5. Список каналів/чатів для моніторингу (ви маєте бути в них підписані)
-MONITOR_CHANNELS = [
+# 5. Сід-список каналів (fallback). Основне джерело — таблиця channel_sources у Supabase;
+#    цей список використовується лише якщо БД недоступна або порожня.
+SEED_CHANNELS = [
     'orendakvarturlviv', 
     'lviv_neruhomist',
     'nerukhomist_prodazh_lviv',
@@ -78,6 +82,15 @@ LISTING_JSON_SCHEMA = {
             "rooms": {"type": ["integer", "null"]},
             "district": {"type": ["string", "null"], "description": "Район міста, якщо згадується в тексті"},
             "has_furniture": {"type": ["boolean", "null"]},
+            "area_sqm": {"type": ["number", "null"], "description": "Площа в м², якщо вказана"},
+            "floor": {"type": ["integer", "null"], "description": "Поверх квартири"},
+            "total_floors": {"type": ["integer", "null"], "description": "Поверховість будинку"},
+            "property_type": {
+                "type": ["string", "null"],
+                "enum": ["apartment", "house", "room", "studio", None],
+                "description": "Тип житла",
+            },
+            "residential_complex": {"type": ["string", "null"], "description": "Назва ЖК, якщо згадується"},
             "clean_description": {
                 "type": "string",
                 "description": "Опис переписаний без рекламних штампів, посилань на агентство та закликів звертатись",
@@ -85,7 +98,8 @@ LISTING_JSON_SCHEMA = {
         },
         "required": [
             "probability_of_owner", "reasoning", "price", "currency",
-            "rooms", "district", "has_furniture", "clean_description",
+            "rooms", "district", "has_furniture", "area_sqm", "floor",
+            "total_floors", "property_type", "residential_complex", "clean_description",
         ],
         "additionalProperties": False,
     },
@@ -99,8 +113,73 @@ DEFAULT_EXTRACTION = {
     "rooms": None,
     "district": None,
     "has_furniture": None,
+    "area_sqm": None,
+    "floor": None,
+    "total_floors": None,
+    "property_type": None,
+    "residential_complex": None,
     "clean_description": "",
 }
+
+
+# --- [ДЖЕРЕЛА КАНАЛІВ] ---
+
+# @згадки інших каналів у тексті (напр. "більше на @orenda_lviv")
+_MENTION_RE = re.compile(r"@([A-Za-z][A-Za-z0-9_]{3,31})")
+
+
+def seed_channels_to_db() -> None:
+    """Одноразово заливає сід-канали в channel_sources як active (idempotent)."""
+    if supabase is None:
+        return
+    rows = [
+        {"platform": "telegram", "identifier": ch, "status": "active", "source": "seed"}
+        for ch in SEED_CHANNELS
+    ]
+    try:
+        supabase.table("channel_sources").upsert(
+            rows, on_conflict="platform,identifier", ignore_duplicates=True
+        ).execute()
+    except Exception as e:
+        print(f"⚠️ Не вдалось залити сід-канали: {e}")
+
+
+def load_active_channels() -> list[str]:
+    """Активні telegram-канали з БД. Fallback — сід-список, якщо БД порожня/недоступна."""
+    if supabase is None:
+        return SEED_CHANNELS
+    try:
+        resp = (
+            supabase.table("channel_sources")
+            .select("identifier")
+            .eq("platform", "telegram")
+            .eq("status", "active")
+            .execute()
+        )
+        channels = [r["identifier"] for r in (resp.data or [])]
+        return channels or SEED_CHANNELS
+    except Exception as e:
+        print(f"⚠️ Не вдалось завантажити канали з БД ({e}), використовую сід-список")
+        return SEED_CHANNELS
+
+
+def discover_channels_from_text(text: str) -> None:
+    """Витягує @згадки каналів і додає їх у чергу (status='pending') на модерацію."""
+    if supabase is None or not text:
+        return
+    mentions = {m.lower() for m in _MENTION_RE.findall(text)}
+    if not mentions:
+        return
+    rows = [
+        {"platform": "telegram", "identifier": m, "status": "pending", "source": "mention"}
+        for m in mentions
+    ]
+    try:
+        supabase.table("channel_sources").upsert(
+            rows, on_conflict="platform,identifier", ignore_duplicates=True
+        ).execute()
+    except Exception as e:
+        print(f"⚠️ Discovery: не вдалось додати кандидатів: {e}")
 
 
 def ai_check(text: str) -> dict:
@@ -111,7 +190,9 @@ def ai_check(text: str) -> dict:
         "Знижуй бал за: професійний жаргон, списки з емодзі, фрази 'відео в приват', "
         "'комісія 0%', 'ан', 'агенство нерухомості', 'агенція', 'код обєкту'. "
         "Також витягни ціну, валюту, кількість кімнат, район міста (якщо згаданий), "
-        "чи є меблі, і перепиши опис без рекламних штампів та закликів звертатись (clean_description)."
+        "чи є меблі, площу в м², поверх, поверховість будинку, тип житла "
+        "(apartment/house/room/studio), назву ЖК (якщо є), і перепиши опис без "
+        "рекламних штампів та закликів звертатись (clean_description)."
     )
     try:
         response = client.chat.completions.create(
@@ -130,7 +211,45 @@ def ai_check(text: str) -> dict:
         return {**DEFAULT_EXTRACTION, "reasoning": f"Помилка AI: {e}"}
 
 
-def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw_text: str) -> None:
+def upload_photo_bytes_to_storage(data: bytes, external_id: str, idx: int) -> str | None:
+    """Вантажить байти фото у Supabase Storage, повертає публічний URL (або None)."""
+    if supabase is None or not data:
+        return None
+    try:
+        path = f"telegram/{external_id}/{idx}.jpg"
+        supabase.storage.from_(SUPABASE_BUCKET).upload(
+            path,
+            data,
+            {"content-type": "image/jpeg", "upsert": "true"},
+        )
+        return supabase.storage.from_(SUPABASE_BUCKET).get_public_url(path)
+    except Exception as e:
+        print(f"⚠️ Фото {idx} не завантажилось у Storage: {e}")
+        return None
+
+
+async def collect_photos(event, messages, external_id: str) -> list[str]:
+    """
+    Завантажує фото з повідомлення (або альбому) у Storage.
+    messages — список повідомлень альбому, або [event.message] для одиночного.
+    """
+    public_urls: list[str] = []
+    idx = 0
+    for msg in messages:
+        if not getattr(msg, "photo", None) or idx >= MAX_PHOTOS:
+            continue
+        try:
+            data = await event.client.download_media(msg, file=bytes)
+            url = upload_photo_bytes_to_storage(data, external_id, idx)
+            if url:
+                public_urls.append(url)
+            idx += 1
+        except Exception as e:
+            print(f"⚠️ Не вдалось завантажити медіа: {e}")
+    return public_urls
+
+
+def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw_text: str, photos: list[str]) -> None:
     if supabase is None:
         return
 
@@ -147,6 +266,12 @@ def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw
         "district": extraction.get("district"),
         "city": CITY,
         "has_furniture": extraction.get("has_furniture"),
+        "area_sqm": extraction.get("area_sqm"),
+        "floor": extraction.get("floor"),
+        "total_floors": extraction.get("total_floors"),
+        "property_type": extraction.get("property_type"),
+        "residential_complex": extraction.get("residential_complex"),
+        "photos": photos,
         "probability_of_owner": extraction["probability_of_owner"],
         "ai_reasoning": extraction.get("reasoning", ""),
     }
@@ -155,13 +280,15 @@ def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw
     except Exception as e:
         print(f"⚠️ Supabase upsert не вдався: {e}")
 
-@tg_client.on(events.NewMessage(chats=MONITOR_CHANNELS))
 async def handler(event):
     text = event.message.message
     if not text or len(text) < 40:
         return
 
     print(f"\n📩 Нове повідомлення в одному з чатів. Аналізую...")
+
+    # Discovery: підхоплюємо @згадки інших каналів у чергу на модерацію
+    discover_channels_from_text(text)
 
     extraction = ai_check(text)
     prob = extraction["probability_of_owner"]
@@ -182,9 +309,13 @@ async def handler(event):
 
         external_id = f"{event.chat_id}_{msg_id}"
 
+        # Фото → Supabase Storage. Наразі беремо фото з повідомлення-підпису;
+        # повна підтримка альбомів (events.Album) — окремий крок.
+        photos = await collect_photos(event, [event.message], external_id)
+
         # Зберігаємо в Supabase все, що дійшло до AI-аналізу — поріг застосовується
         # на рівні фронтенду/запиту, а не на етапі збору даних.
-        upsert_listing_to_supabase(extraction, external_id, link, text)
+        upsert_listing_to_supabase(extraction, external_id, link, text, photos)
 
         if prob >= MIN_OWNER_PROB:
             msg = (
@@ -214,10 +345,16 @@ async def handler(event):
 async def main():
     print("-" * 30)
     print("🚀 Telegram Hunter v3.0 запущен!")
-    print(f"📡 Моніторинг чатів: {', '.join(MONITOR_CHANNELS)}")
+
+    # Джерела каналів — з БД (з fallback на сід-список)
+    seed_channels_to_db()
+    channels = load_active_channels()
+    tg_client.add_event_handler(handler, events.NewMessage(chats=channels))
+
+    print(f"📡 Моніторинг {len(channels)} каналів: {', '.join(channels)}")
     print(f"👥 Отримувачі: {', '.join(CHAT_IDS)}")
     print("-" * 30)
-    
+
     await tg_client.start()
     print("🔓 Авторизація успішна. Чекаю на повідомлення...")
     await tg_client.run_until_disconnected()

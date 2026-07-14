@@ -1,0 +1,5 @@
+requests
+beautifulsoup4
+openai>=1.40
+supabase>=2.6
+telethon

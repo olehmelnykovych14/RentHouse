@@ -50,6 +50,9 @@ MONITOR_URLS = [
 ]
 CITY = "Львів"
 
+SUPABASE_BUCKET = "listing-photos"   # публічний bucket у Supabase Storage
+MAX_PHOTOS      = 15                  # скільки фото зберігати на оголошення
+
 SEEN_ADS_FILE  = Path("seen_ads.json")
 MIN_OWNER_PROB = 70   # Мінімальний % щоб відправити в Telegram
 
@@ -288,6 +291,9 @@ def fetch_ad_details(session: requests.Session, ad_url: str) -> dict | None:
     # Кількість оголошень автора
     other_ads_count = _extract_seller_ads_count(soup)
 
+    # Фото оголошення (сирі URL з CDN OLX)
+    photo_urls = _extract_photo_urls(soup)
+
     # Дата реєстрації продавця (якщо є)
     reg_date = ""
     for span in soup.find_all("span"):
@@ -303,7 +309,39 @@ def fetch_ad_details(session: requests.Session, ad_url: str) -> dict | None:
         "seller_name": seller_name,
         "seller_ads_count": other_ads_count,
         "reg_date": reg_date,
+        "photo_urls": photo_urls,
     }
+
+
+def _extract_photo_urls(soup: BeautifulSoup) -> list[str]:
+    """Витягує URL фотографій оголошення з галереї OLX (до MAX_PHOTOS, без дублів)."""
+    urls: list[str] = []
+
+    candidates = (
+        soup.select('img[data-testid="swiper-image"]')
+        or soup.select(".swiper-slide img")
+        or soup.select('[data-cy="adPhotos-swiperSlide"] img')
+    )
+
+    for img in candidates:
+        # srcset дає найбільшу роздільність — беремо останній варіант
+        src = ""
+        srcset = img.get("srcset")
+        if srcset:
+            src = srcset.split(",")[-1].strip().split(" ")[0]
+        if not src:
+            src = img.get("src", "")
+        if src.startswith("http") and ("olxcdn" in src or "apollo" in src) and src not in urls:
+            urls.append(src)
+
+    # Резерв: og:image, якщо галерею не знайшли
+    if not urls:
+        for meta in soup.select('meta[property="og:image"]'):
+            src = meta.get("content", "")
+            if src.startswith("http") and src not in urls:
+                urls.append(src)
+
+    return urls[:MAX_PHOTOS]
 
 
 def _extract_seller_ads_count(soup: BeautifulSoup) -> int:
@@ -370,6 +408,15 @@ LISTING_JSON_SCHEMA = {
             "rooms": {"type": ["integer", "null"]},
             "district": {"type": ["string", "null"], "description": "Район міста, якщо згадується в тексті"},
             "has_furniture": {"type": ["boolean", "null"]},
+            "area_sqm": {"type": ["number", "null"], "description": "Площа в м², якщо вказана"},
+            "floor": {"type": ["integer", "null"], "description": "Поверх квартири"},
+            "total_floors": {"type": ["integer", "null"], "description": "Поверховість будинку"},
+            "property_type": {
+                "type": ["string", "null"],
+                "enum": ["apartment", "house", "room", "studio", None],
+                "description": "Тип житла",
+            },
+            "residential_complex": {"type": ["string", "null"], "description": "Назва ЖК, якщо згадується"},
             "clean_description": {
                 "type": "string",
                 "description": "Опис переписаний без рекламних штампів, посилань на агентство та закликів звертатись",
@@ -377,7 +424,8 @@ LISTING_JSON_SCHEMA = {
         },
         "required": [
             "probability_of_owner", "reasoning", "price", "currency",
-            "rooms", "district", "has_furniture", "clean_description",
+            "rooms", "district", "has_furniture", "area_sqm", "floor",
+            "total_floors", "property_type", "residential_complex", "clean_description",
         ],
         "additionalProperties": False,
     },
@@ -391,6 +439,11 @@ DEFAULT_EXTRACTION = {
     "rooms": None,
     "district": None,
     "has_furniture": None,
+    "area_sqm": None,
+    "floor": None,
+    "total_floors": None,
+    "property_type": None,
+    "residential_complex": None,
     "clean_description": "",
 }
 
@@ -416,7 +469,8 @@ def level3_ai_analysis(ad: dict) -> dict:
 - Запрошення на огляд у конкретний офіс
 
 Також витягни: ціну (число), валюту, кількість кімнат, район міста (якщо згаданий),
-чи є меблі, і перепиши опис без рекламних штампів та закликів звертатись (clean_description)."""
+чи є меблі, площу в м², поверх, поверховість будинку, тип житла (apartment/house/room/studio),
+назву ЖК (якщо є), і перепиши опис без рекламних штампів та закликів звертатись (clean_description)."""
 
     user_content = f"""Оголошення:
 НАЗВА: {ad['title']}
@@ -452,7 +506,35 @@ def level3_ai_analysis(ad: dict) -> dict:
 # SUPABASE
 # ─────────────────────────────────────────────
 
-def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str) -> None:
+def upload_photos_to_storage(session: requests.Session, photo_urls: list[str], ad_id: str) -> list[str]:
+    """
+    Завантажує фото у Supabase Storage і повертає публічні URL.
+    Якщо Storage недоступний або завантаження впало — повертає сирі URL (фолбек).
+    """
+    if not photo_urls:
+        return []
+    if supabase is None:
+        return photo_urls
+
+    public_urls: list[str] = []
+    for i, url in enumerate(photo_urls[:MAX_PHOTOS]):
+        try:
+            resp = session.get(url, timeout=20)
+            resp.raise_for_status()
+            path = f"olx/{ad_id}/{i}.jpg"
+            supabase.storage.from_(SUPABASE_BUCKET).upload(
+                path,
+                resp.content,
+                {"content-type": "image/jpeg", "upsert": "true"},
+            )
+            public_urls.append(supabase.storage.from_(SUPABASE_BUCKET).get_public_url(path))
+        except Exception as e:
+            log.warning(f"  ⚠️ Фото {i} не завантажилось у Storage ({e}), лишаю сирий URL")
+            public_urls.append(url)
+    return public_urls
+
+
+def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str, photos: list[str]) -> None:
     if supabase is None:
         return
 
@@ -469,6 +551,12 @@ def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str) -> None:
         "district": extraction.get("district"),
         "city": CITY,
         "has_furniture": extraction.get("has_furniture"),
+        "area_sqm": extraction.get("area_sqm"),
+        "floor": extraction.get("floor"),
+        "total_floors": extraction.get("total_floors"),
+        "property_type": extraction.get("property_type"),
+        "residential_complex": extraction.get("residential_complex"),
+        "photos": photos,
         "probability_of_owner": extraction["probability_of_owner"],
         "ai_reasoning": extraction.get("reasoning", ""),
         "seller_name": ad["seller_name"],
@@ -569,9 +657,14 @@ def process_ad(session: requests.Session, ad_stub: dict, seen_ads: set) -> str |
     reasoning = extraction.get("reasoning", "")
     log.info(f"  📊 Ймовірність власника: {probability}%")
 
+    # Фото → Supabase Storage (повертає публічні URL або сирі як фолбек)
+    photos = upload_photos_to_storage(session, ad.get("photo_urls", []), ad_id)
+    if photos:
+        log.info(f"  🖼️ Фото: {len(photos)}")
+
     # Зберігаємо в Supabase все, що дійшло до AI-аналізу — поріг застосовується
     # на рівні фронтенду/запиту, а не на етапі збору даних.
-    upsert_listing_to_supabase(ad, extraction, ad_id)
+    upsert_listing_to_supabase(ad, extraction, ad_id, photos)
 
     if probability >= MIN_OWNER_PROB:
         message = format_telegram_message(ad, probability, reasoning)

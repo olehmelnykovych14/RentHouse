@@ -1,7 +1,15 @@
 # Ignore local secret and runtime files
 config.py
 credentials.json
+facebook.txt
 *.log
 *.session
 __pycache__/
 *.pyc
+
+# Runtime dedup caches (scrapers)
+seen_ads*.json
+seen_fb_posts.json
+
+# OS junk
+desktop.ini
