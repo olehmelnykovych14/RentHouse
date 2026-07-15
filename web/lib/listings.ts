@@ -17,6 +17,16 @@ export type Listing = {
   probability_of_owner: number | null;
   photos: string[] | null;
   created_at: string | null;
+  // Додаткові поля для сторінки деталей (необов'язкові — моки їх не мають)
+  floor?: number | null;
+  total_floors?: number | null;
+  has_furniture?: boolean | null;
+  lat?: number | null;
+  lng?: number | null;
+  clean_description?: string | null;
+  seller_contact?: string | null;
+  original_url?: string | null;
+  source?: string | null;
 };
 
 const SELECT_COLS =
@@ -138,4 +148,26 @@ export function isLocked(listing: Listing, subscribed = false): boolean {
   if (subscribed) return false;
   if (!listing.created_at) return false;
   return now() - Date.parse(listing.created_at) < DAY_MS;
+}
+
+const DETAIL_COLS =
+  SELECT_COLS +
+  ",floor,total_floors,has_furniture,lat,lng,clean_description,seller_contact,original_url,source";
+
+/** Одне оголошення для сторінки деталей. null, якщо не знайдено. */
+export async function getListingById(id: string): Promise<Listing | null> {
+  const supabase = getSupabase();
+  if (!supabase) return MOCK_LISTINGS.find((l) => l.id === id) ?? MOCK_LISTINGS[0] ?? null;
+
+  const { data, error } = await supabase
+    .from("listings_public")
+    .select(DETAIL_COLS)
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[listings] getListingById:", error.message);
+    return null;
+  }
+  return (data as unknown as Listing) ?? null;
 }
