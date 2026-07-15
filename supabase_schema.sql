@@ -6,7 +6,7 @@
 -- ─────────────────────────────────────────────
 create table public.listings (
     id                  uuid primary key default gen_random_uuid(),
-    source              text not null check (source in ('olx', 'telegram', 'dimria', 'facebook')),
+    source              text not null check (source in ('olx', 'telegram', 'dimria', 'facebook', 'user')),
     external_id         text not null,          -- OLX ad ID, or "{chat_id}_{msg_id}" for Telegram
     url                 text not null,
     title               text,
@@ -37,7 +37,8 @@ create table public.listings (
     seller_name         text,
     seller_contact      text,                   -- phone/username — masked in listings_public unless subscribed
     photos              jsonb not null default '[]',
-    status              text not null default 'active' check (status in ('active', 'rented', 'expired', 'removed')),
+    status              text not null default 'active' check (status in ('active', 'rented', 'expired', 'removed', 'pending')),
+    posted_by           uuid references auth.users (id) on delete set null,  -- заповнюється для оголошень від власника (source='user'); null для скрапів
     created_at          timestamptz not null default now(),
     updated_at          timestamptz not null default now(),
     unique (source, external_id)
@@ -60,10 +61,29 @@ create trigger listings_set_updated_at
     before update on public.listings
     for each row execute function public.set_updated_at();
 
--- RLS enabled, but no policies granted — only the service_role key (used by the
--- scrapers) can read/write this table directly. The service_role key bypasses
--- RLS by default in Supabase, so scrapers need no explicit policy here.
+-- RLS enabled. Scrapers write via the service_role key (bypasses RLS). Public
+-- reads go through the listings_public view. The policies below are the phase-2
+-- foundation for owner-posted listings (source='user'): an authenticated user
+-- can create and manage only their own listings, which start as 'pending' for
+-- moderation and become publicly visible only after an admin sets status='active'.
 alter table public.listings enable row level security;
+
+create policy "listings_select_own"
+    on public.listings for select
+    using (auth.uid() = posted_by);
+
+create policy "listings_insert_own"
+    on public.listings for insert
+    with check (auth.uid() = posted_by and source = 'user' and status = 'pending');
+
+create policy "listings_update_own"
+    on public.listings for update
+    using (auth.uid() = posted_by)
+    with check (auth.uid() = posted_by and source = 'user');
+
+create policy "listings_delete_own"
+    on public.listings for delete
+    using (auth.uid() = posted_by);
 
 -- ─────────────────────────────────────────────
 -- 2. Subscriptions (paywall) — filled in later by a payment webhook, not by the scrapers
@@ -116,11 +136,12 @@ security definer
 set search_path = public
 as $$
 begin
-    insert into public.profiles (id, full_name, phone)
+    insert into public.profiles (id, full_name, phone, role)
     values (
         new.id,
         new.raw_user_meta_data ->> 'full_name',
-        new.raw_user_meta_data ->> 'phone'
+        new.raw_user_meta_data ->> 'phone',
+        case when new.raw_user_meta_data ->> 'role' = 'owner' then 'owner' else 'tenant' end
     );
     return new;
 end;
