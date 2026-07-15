@@ -15,3 +15,8 @@ TG_API_HASH = os.getenv("TG_API_HASH", "")
 # Google credentials file name (ignored by git)
 GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json")
 GSHEET_NAME = os.getenv("GSHEET_NAME", "Львів Оренда")
+
+# Supabase project (Settings -> API in the Supabase dashboard).
+# Use the service_role key here (server-side only, bypasses RLS) — never ship it to a frontend.
+SUPABASE_URL = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
