@@ -6,6 +6,9 @@ import OwnerCTA from "@/components/OwnerCTA";
 import Footer from "@/components/Footer";
 import { getPopularListings } from "@/lib/listings";
 
+// Дані змінюються (скрапери пишуть постійно) — рендеримо динамічно, без кешу.
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
   const listings = await getPopularListings(3);
 

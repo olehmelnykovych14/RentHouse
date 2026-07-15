@@ -6,7 +6,7 @@
 -- ─────────────────────────────────────────────
 create table public.listings (
     id                  uuid primary key default gen_random_uuid(),
-    source              text not null check (source in ('olx', 'telegram')),
+    source              text not null check (source in ('olx', 'telegram', 'dimria', 'facebook')),
     external_id         text not null,          -- OLX ad ID, or "{chat_id}_{msg_id}" for Telegram
     url                 text not null,
     title               text,

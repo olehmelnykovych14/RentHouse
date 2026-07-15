@@ -60,6 +60,7 @@ export async function getPopularListings(limit = 3): Promise<Listing[]> {
     .order("probability_of_owner", { ascending: false })
     .limit(limit);
 
+  if (error) console.error("[listings] Supabase:", error.message);
   if (error || !data || data.length === 0) return MOCK_LISTINGS.slice(0, limit);
   return data as Listing[];
 }

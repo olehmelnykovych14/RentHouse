@@ -176,7 +176,9 @@ def build_photo_urls(realty: dict) -> list[str]:
 
 def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
     """Мапить структурований об'єкт dom.ria у рядок таблиці listings."""
-    is_owner = bool(realty.get("isOwner"))
+    # Власник ↔ агенція визначається наявністю agency_id (не полем isOwner,
+    # яке означає «чи ти сам автор оголошення» і для скрапера завжди False).
+    is_owner = not realty.get("agency_id")
     rooms = realty.get("rooms_count")
     district = realty.get("district_name_uk") or realty.get("district_name")
     description = realty.get("description_uk") or realty.get("description") or ""
@@ -207,7 +209,7 @@ def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
         "commission_verified": False,
         "photos": photos,
         "probability_of_owner": 90 if is_owner else 15,
-        "ai_reasoning": f"DIM.RIA: isOwner={is_owner}, agency_id={realty.get('agency_id')}",
+        "ai_reasoning": f"DIM.RIA: {'власник' if is_owner else 'агенція'} (agency_id={realty.get('agency_id')})",
         "seller_name": "",
     }
 
