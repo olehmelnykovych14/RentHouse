@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import ChatAgent from "@/components/ChatAgent";
 
 export const metadata: Metadata = {
   title: "RentDirect — квартири від власників",
@@ -21,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="bg-background text-on-surface font-body-md min-h-screen flex flex-col">
         {children}
+        <ChatAgent />
       </body>
     </html>
   );
