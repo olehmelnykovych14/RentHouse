@@ -1,4 +1,4 @@
-import { getSupabase } from "./supabase";
+import { createSupabaseServer } from "./supabase/server";
 
 export type Listing = {
   id: string;
@@ -68,7 +68,7 @@ const MOCK_LISTINGS: Listing[] = [
  * падає на мок-дані, якщо Supabase не налаштовано або запит невдалий.
  */
 export async function getPopularListings(limit = 3): Promise<Listing[]> {
-  const supabase = getSupabase();
+  const supabase = createSupabaseServer();
   if (!supabase) return MOCK_LISTINGS.slice(0, limit);
 
   const { data, error } = await supabase
@@ -105,7 +105,7 @@ export type ListingFilters = {
 export async function getListings(
   f: ListingFilters
 ): Promise<{ listings: Listing[]; count: number }> {
-  const supabase = getSupabase();
+  const supabase = createSupabaseServer();
   if (!supabase) return { listings: MOCK_LISTINGS, count: MOCK_LISTINGS.length };
 
   let query = supabase
@@ -156,7 +156,7 @@ const DETAIL_COLS =
 
 /** Одне оголошення для сторінки деталей. null, якщо не знайдено. */
 export async function getListingById(id: string): Promise<Listing | null> {
-  const supabase = getSupabase();
+  const supabase = createSupabaseServer();
   if (!supabase) return MOCK_LISTINGS.find((l) => l.id === id) ?? MOCK_LISTINGS[0] ?? null;
 
   const { data, error } = await supabase
