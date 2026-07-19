@@ -1,7 +1,7 @@
 const COLS = [
-  ["About Us", "Terms of Service"],
-  ["Privacy Policy", "Contact Support"],
-  ["Owner Resources", "Careers"],
+  ["Про нас", "Умови користування"],
+  ["Політика конфіденційності", "Підтримка"],
+  ["Власникам", "Кар'єра"],
 ];
 
 export default function Footer() {

@@ -2,7 +2,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import FilterSidebar from "@/components/FilterSidebar";
 import CatalogCard from "@/components/CatalogCard";
-import { getListings, type ListingFilters } from "@/lib/listings";
+import { getListings, getFavoriteIds, type ListingFilters } from "@/lib/listings";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,7 @@ function toFilters(sp: SearchParams): ListingFilters {
 
 export default async function ListingsPage({ searchParams }: { searchParams: SearchParams }) {
   const filters = toFilters(searchParams);
-  const { listings, count } = await getListings(filters);
+  const [{ listings, count }, favIds] = await Promise.all([getListings(filters), getFavoriteIds()]);
 
   return (
     <>
@@ -58,7 +58,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: Sea
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-gutter">
               {listings.map((l) => (
-                <CatalogCard key={l.id} listing={l} />
+                <CatalogCard key={l.id} listing={l} favorited={favIds.has(l.id)} />
               ))}
             </div>
           )}

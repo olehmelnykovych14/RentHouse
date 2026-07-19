@@ -2,8 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { getListingById } from "@/lib/listings";
+import { getListingById, getFavoriteIds } from "@/lib/listings";
 import { formatPrice } from "@/lib/format";
+import PhotoGallery from "@/components/PhotoGallery";
+import FavoriteButton from "@/components/FavoriteButton";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +15,7 @@ export async function generateMetadata({ params }: { params: { id: string } }) {
 }
 
 export default async function ListingDetailPage({ params }: { params: { id: string } }) {
-  const listing = await getListingById(params.id);
+  const [listing, favIds] = await Promise.all([getListingById(params.id), getFavoriteIds()]);
   if (!listing) notFound();
 
   const photos = listing.photos ?? [];
@@ -59,38 +61,21 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
               <span>{[listing.district, listing.city].filter(Boolean).join(", ") || "—"}</span>
             </div>
           </div>
-          <div className="flex flex-col items-start md:items-end">
+          <div className="flex items-center gap-4">
             <span className="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-primary">
               {formatPrice(listing.price, listing.currency)}{" "}
               <span className="font-body-md text-body-md text-on-surface-variant">/ міс</span>
             </span>
+            <FavoriteButton
+              listingId={listing.id}
+              initial={favIds.has(listing.id)}
+              className="w-11 h-11 rounded-full border border-surface-variant flex items-center justify-center shrink-0"
+            />
           </div>
         </div>
 
-        {/* Gallery — головне фото + мініатюри (всі наявні фото) */}
-        {photos.length > 0 && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-base mb-12 h-[300px] md:h-[440px] rounded-xl overflow-hidden">
-            <div className="col-span-2 md:row-span-2 relative bg-surface-container-low overflow-hidden">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photos[0]} alt={listing.title ?? "Квартира"} className="w-full h-full object-cover" />
-              <span className="absolute bottom-3 right-3 bg-surface-container-lowest/90 text-on-surface font-caption text-caption px-3 py-1.5 rounded-lg flex items-center gap-1">
-                <span className="material-symbols-outlined text-[18px]">photo_library</span>
-                Всі фото ({photos.length})
-              </span>
-            </div>
-            {photos.slice(1, 5).map((p, i, arr) => (
-              <div key={i} className="hidden md:block relative bg-surface-container-low overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={p} alt="" className="w-full h-full object-cover" />
-                {i === arr.length - 1 && photos.length > 5 && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-on-surface/50 text-on-primary font-label-md text-label-md">
-                    +{photos.length - 5}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        {/* Галерея з лайтбоксом */}
+        <PhotoGallery photos={photos} title={listing.title ?? "Квартира"} />
 
         {/* Content + sidebar */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-gutter">

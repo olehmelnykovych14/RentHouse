@@ -4,13 +4,13 @@ import Hero from "@/components/Hero";
 import ListingCard from "@/components/ListingCard";
 import OwnerCTA from "@/components/OwnerCTA";
 import Footer from "@/components/Footer";
-import { getPopularListings } from "@/lib/listings";
+import { getPopularListings, getFavoriteIds } from "@/lib/listings";
 
 // Дані змінюються (скрапери пишуть постійно) — рендеримо динамічно, без кешу.
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const listings = await getPopularListings(3);
+  const [listings, favIds] = await Promise.all([getPopularListings(3), getFavoriteIds()]);
 
   return (
     <>
@@ -37,7 +37,7 @@ export default async function HomePage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter">
             {listings.map((l) => (
-              <ListingCard key={l.id} listing={l} />
+              <ListingCard key={l.id} listing={l} favorited={favIds.has(l.id)} />
             ))}
           </div>
 

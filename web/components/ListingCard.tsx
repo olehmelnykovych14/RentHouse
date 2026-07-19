@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Listing } from "@/lib/listings";
 import { formatPrice } from "@/lib/format";
+import FavoriteButton from "./FavoriteButton";
 
 function badge(listing: Listing): { text: string; icon: string } {
   if (listing.listing_type === "agency_no_fee") return { text: "Агенція • 0%", icon: "verified" };
@@ -8,7 +9,7 @@ function badge(listing: Listing): { text: string; icon: string } {
   return { text: "Від власника", icon: "verified" };
 }
 
-export default function ListingCard({ listing }: { listing: Listing }) {
+export default function ListingCard({ listing, favorited = false }: { listing: Listing; favorited?: boolean }) {
   const b = badge(listing);
   const photo = listing.photos?.[0];
   const tags: string[] = [];
@@ -44,9 +45,7 @@ export default function ListingCard({ listing }: { listing: Listing }) {
             {formatPrice(listing.price, listing.currency)}{" "}
             <span className="font-body-md text-body-md text-on-surface-variant">/міс</span>
           </h3>
-          <button className="text-outline hover:text-error transition-colors" aria-label="В обране">
-            <span className="material-symbols-outlined">favorite_border</span>
-          </button>
+          <FavoriteButton listingId={listing.id} initial={favorited} />
         </div>
 
         <p className="font-body-md text-body-md text-on-surface-variant mb-4 flex items-center">

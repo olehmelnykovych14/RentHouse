@@ -2,10 +2,10 @@ import Link from "next/link";
 import { createSupabaseServer } from "@/lib/supabase/server";
 
 const LINKS = [
-  { label: "Explore", href: "/" },
-  { label: "Listings", href: "/listings" },
-  { label: "Favorites", href: "/favorites" },
-  { label: "Pricing", href: "/pricing" },
+  { label: "Огляд", href: "/" },
+  { label: "Каталог", href: "/listings" },
+  { label: "Обране", href: "/favorites" },
+  { label: "Тарифи", href: "/pricing" },
 ];
 
 export default async function Navbar() {
@@ -46,12 +46,14 @@ export default async function Navbar() {
         <div className="flex gap-3 items-center">
           {user ? (
             <>
-              <div className="hidden md:flex items-center gap-2 max-w-[180px]">
+              <Link href="/cabinet" className="hidden md:flex items-center gap-2 max-w-[180px] group">
                 <div className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center font-label-md text-label-md shrink-0">
                   {initial}
                 </div>
-                <span className="font-label-md text-label-md text-on-surface truncate">{displayName}</span>
-              </div>
+                <span className="font-label-md text-label-md text-on-surface truncate group-hover:text-primary transition-colors">
+                  {displayName}
+                </span>
+              </Link>
               <form action="/auth/signout" method="post">
                 <button
                   type="submit"
@@ -73,7 +75,7 @@ export default async function Navbar() {
             href="/register"
             className="bg-primary text-on-primary font-label-md text-label-md px-4 py-2 rounded-lg active:scale-95 transition-transform"
           >
-            Post Listing
+            Додати оголошення
           </Link>
         </div>
       </div>

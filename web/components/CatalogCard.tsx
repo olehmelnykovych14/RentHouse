@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { type Listing, isLocked } from "@/lib/listings";
 import { formatPrice } from "@/lib/format";
+import FavoriteButton from "./FavoriteButton";
 
-export default function CatalogCard({ listing }: { listing: Listing }) {
+export default function CatalogCard({ listing, favorited = false }: { listing: Listing; favorited?: boolean }) {
   const locked = isLocked(listing); // subscribed=false, поки нема auth
   const photo = listing.photos?.[0];
   const location = [listing.city, listing.district].filter(Boolean).join(", ");
@@ -32,6 +33,13 @@ export default function CatalogCard({ listing }: { listing: Listing }) {
         <div className="absolute top-2 right-2 z-10 bg-secondary/10 text-secondary-container backdrop-blur-sm px-2 py-1 rounded font-caption text-caption flex items-center gap-1 border border-secondary/20">
           <span className="material-symbols-outlined text-[14px]">verified</span> Власник
         </div>
+
+        {/* Обране */}
+        <FavoriteButton
+          listingId={listing.id}
+          initial={favorited}
+          className="absolute bottom-2 right-2 z-20 w-9 h-9 rounded-full bg-surface-container-lowest/90 backdrop-blur-sm flex items-center justify-center shadow-sm"
+        />
 
         {/* Замок paywall для свіжих оголошень */}
         {locked && (

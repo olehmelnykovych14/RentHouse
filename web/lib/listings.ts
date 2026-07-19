@@ -152,6 +152,37 @@ export function isLocked(listing: Listing, subscribed = false): boolean {
   return now() - Date.parse(listing.created_at) < DAY_MS;
 }
 
+// ─────────────────────────────────────────────
+// Обране (Favorites)
+// ─────────────────────────────────────────────
+
+/** Set id-ів оголошень, які поточний користувач додав в обране (порожній, якщо не залогінений). */
+export async function getFavoriteIds(): Promise<Set<string>> {
+  const supabase = createSupabaseServer();
+  if (!supabase) return new Set();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return new Set();
+  const { data } = await supabase.from("favorites").select("listing_id").eq("user_id", user.id);
+  return new Set((data ?? []).map((r: { listing_id: string }) => r.listing_id));
+}
+
+/** Оголошення, які користувач додав в обране (для сторінки /favorites). */
+export async function getFavoriteListings(): Promise<Listing[]> {
+  const supabase = createSupabaseServer();
+  if (!supabase) return [];
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+  const { data: favs } = await supabase.from("favorites").select("listing_id").eq("user_id", user.id);
+  const ids = (favs ?? []).map((r: { listing_id: string }) => r.listing_id);
+  if (ids.length === 0) return [];
+  const { data } = await supabase.from("listings_public").select(SELECT_COLS).in("id", ids);
+  return (data as unknown as Listing[]) ?? [];
+}
+
 const DETAIL_COLS =
   SELECT_COLS +
   ",floor,total_floors,has_furniture,lat,lng,clean_description,seller_contact,original_url,source";
