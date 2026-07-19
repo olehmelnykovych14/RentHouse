@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { getListingById, isLocked } from "@/lib/listings";
+import { getListingById } from "@/lib/listings";
 import { formatPrice } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +16,10 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
   const listing = await getListingById(params.id);
   if (!listing) notFound();
 
-  const locked = isLocked(listing); // subscribed=false, поки нема auth
   const photos = listing.photos ?? [];
-  const mainPhoto = photos[0];
   const isOwner = listing.listing_type === "owner";
+  // Підписник: listings_public віддає original_url лише йому → це і є ознака доступу.
+  const unlocked = !!listing.original_url;
   const floorText =
     listing.floor && listing.total_floors
       ? `${listing.floor} / ${listing.total_floors}`
@@ -67,31 +67,30 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
           </div>
         </div>
 
-        {/* Gallery */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-base mb-12 h-[320px] md:h-[440px] rounded-xl overflow-hidden">
-          <div className="md:col-span-2 relative bg-surface-container-low overflow-hidden">
-            {mainPhoto && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={mainPhoto} alt={listing.title ?? "Квартира"} className="w-full h-full object-cover" />
-            )}
-          </div>
-          <div className="relative bg-surface-container-low overflow-hidden hidden md:flex items-center justify-center">
-            {mainPhoto && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={mainPhoto}
-                alt=""
-                className={`w-full h-full object-cover ${locked ? "blur-md scale-105" : ""}`}
-              />
-            )}
-            {locked && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-on-surface/40 text-on-primary text-center p-4">
-                <span className="material-symbols-outlined text-[32px] mb-1">lock</span>
-                <span className="font-label-md text-label-md">Всі фото — для Premium</span>
+        {/* Gallery — головне фото + мініатюри (всі наявні фото) */}
+        {photos.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-base mb-12 h-[300px] md:h-[440px] rounded-xl overflow-hidden">
+            <div className="col-span-2 md:row-span-2 relative bg-surface-container-low overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={photos[0]} alt={listing.title ?? "Квартира"} className="w-full h-full object-cover" />
+              <span className="absolute bottom-3 right-3 bg-surface-container-lowest/90 text-on-surface font-caption text-caption px-3 py-1.5 rounded-lg flex items-center gap-1">
+                <span className="material-symbols-outlined text-[18px]">photo_library</span>
+                Всі фото ({photos.length})
+              </span>
+            </div>
+            {photos.slice(1, 5).map((p, i, arr) => (
+              <div key={i} className="hidden md:block relative bg-surface-container-low overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={p} alt="" className="w-full h-full object-cover" />
+                {i === arr.length - 1 && photos.length > 5 && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-on-surface/50 text-on-primary font-label-md text-label-md">
+                    +{photos.length - 5}
+                  </div>
+                )}
               </div>
-            )}
+            ))}
           </div>
-        </div>
+        )}
 
         {/* Content + sidebar */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-gutter">
@@ -138,15 +137,15 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
             )}
           </div>
 
-          {/* Sidebar */}
+          {/* Sidebar — картка контакту */}
           <div className="lg:col-span-1">
             <div className="sticky top-24 bg-surface-container-lowest p-6 rounded-xl border border-surface-variant shadow-level-2">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                  <span className="material-symbols-outlined">{isOwner ? "person" : "apartment"}</span>
+              <div className="flex items-center gap-4 mb-6">
+                <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                  <span className="material-symbols-outlined text-[28px]">{isOwner ? "person" : "apartment"}</span>
                 </div>
                 <div>
-                  <h3 className="font-label-md text-label-md text-on-background">
+                  <h3 className="font-headline-md text-headline-md text-on-background">
                     {isOwner ? "Власник" : "Агенція"}
                   </h3>
                   <div className="bg-secondary/10 text-secondary px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-wider inline-flex items-center mt-1">
@@ -158,38 +157,38 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
                 </div>
               </div>
 
-              <p className="font-caption text-caption text-on-surface-variant mb-6 pb-6 border-b border-surface-variant">
-                {locked ? "+380 (••) •••-••-••" : listing.seller_contact || "Контакт у джерелі"}
-                <br />
-                Прямий контакт без комісії посередника.
-              </p>
+              <div className="mb-6 pb-6 border-b border-surface-variant">
+                <div className="flex items-center gap-2 text-on-background font-label-md text-label-md mb-1">
+                  <span className="material-symbols-outlined text-[18px] text-primary">call</span>
+                  {unlocked ? listing.seller_contact || "Контакт — в оригіналі" : "+380 (••) •••-••-••"}
+                </div>
+                <p className="font-caption text-caption text-on-surface-variant">
+                  {unlocked
+                    ? "Прямий контакт без комісії посередника."
+                    : "Оформіть Premium, щоб відкрити прямий контакт власника без комісії."}
+                </p>
+              </div>
 
               <div className="flex flex-col gap-3">
-                {locked ? (
+                {unlocked && listing.original_url ? (
+                  <a
+                    href={listing.original_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-full bg-primary text-on-primary font-label-md text-label-md py-3 rounded-lg hover:bg-primary-container transition-colors shadow-md flex justify-center items-center gap-2"
+                  >
+                    <span className="material-symbols-outlined">open_in_new</span>
+                    Відкрити оригінал і контакт
+                  </a>
+                ) : (
                   <Link
                     href="/pricing"
-                    className="w-full bg-primary text-on-primary font-label-md text-label-md py-3 rounded-lg hover:bg-primary-container transition-colors shadow-md flex justify-center items-center gap-2"
+                    className="w-full bg-primary text-on-primary font-label-md text-label-md py-3 rounded-lg hover:bg-primary-container transition-colors shadow-md flex justify-center items-center gap-2 ring-2 ring-primary-fixed"
                   >
                     <span className="material-symbols-outlined">workspace_premium</span>
                     Оформити Premium для перегляду
                   </Link>
-                ) : (
-                  listing.original_url && (
-                    <a
-                      href={listing.original_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="w-full bg-primary text-on-primary font-label-md text-label-md py-3 rounded-lg hover:bg-primary-container transition-colors shadow-md flex justify-center items-center gap-2"
-                    >
-                      <span className="material-symbols-outlined">open_in_new</span>
-                      Відкрити оригінал
-                    </a>
-                  )
                 )}
-                <button className="w-full bg-transparent border border-primary text-primary font-label-md text-label-md py-3 rounded-lg hover:bg-primary/5 transition-colors flex justify-center items-center gap-2">
-                  <span className="material-symbols-outlined">calendar_month</span>
-                  Забронювати перегляд
-                </button>
               </div>
             </div>
           </div>

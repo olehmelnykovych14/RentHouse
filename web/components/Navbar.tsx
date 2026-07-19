@@ -13,6 +13,17 @@ export default async function Navbar() {
   const { data } = supabase ? await supabase.auth.getUser() : { data: { user: null } };
   const user = data?.user ?? null;
 
+  let displayName = user?.email ?? "";
+  if (user && supabase) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", user.id)
+      .maybeSingle();
+    displayName = profile?.full_name || user.email || "";
+  }
+  const initial = displayName.trim().charAt(0).toUpperCase() || "U";
+
   return (
     <nav className="fixed top-0 w-full z-50 bg-surface-container-lowest/80 backdrop-blur-md border-b border-surface-variant/20 shadow-sm">
       <div className="flex justify-between items-center h-16 px-margin-mobile md:px-margin-desktop max-w-container-max mx-auto">
@@ -35,9 +46,12 @@ export default async function Navbar() {
         <div className="flex gap-3 items-center">
           {user ? (
             <>
-              <span className="hidden md:inline font-caption text-caption text-on-surface-variant max-w-[160px] truncate">
-                {user.email}
-              </span>
+              <div className="hidden md:flex items-center gap-2 max-w-[180px]">
+                <div className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center font-label-md text-label-md shrink-0">
+                  {initial}
+                </div>
+                <span className="font-label-md text-label-md text-on-surface truncate">{displayName}</span>
+              </div>
               <form action="/auth/signout" method="post">
                 <button
                   type="submit"

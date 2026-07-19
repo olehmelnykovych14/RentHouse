@@ -217,10 +217,7 @@ select
     probability_of_owner,
     status,
     created_at,
-    case
-        when public.is_subscriber() then photos
-        else case when jsonb_array_length(photos) > 0 then jsonb_build_array(photos -> 0) else '[]'::jsonb end
-    end as photos,
+    photos,   -- фото публічні (продають квартиру); платним лишається контакт + оригінальний лінк
     case
         when public.is_subscriber() then seller_contact
         else regexp_replace(coalesce(seller_contact, ''), '(\d{2})\d+(\d{2})$', '\1***\2')
