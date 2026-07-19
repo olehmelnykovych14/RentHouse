@@ -1,5 +1,6 @@
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import SubscribeButton from "@/components/SubscribeButton";
 
 export const metadata = { title: "Тарифи — RentDirect" };
 
@@ -12,6 +13,7 @@ type Tier = {
   cta: string;
   featured?: boolean;
   accent: "surface-variant" | "primary" | "tertiary";
+  plan?: string; // якщо задано — кнопка ініціює оплату цього тарифу
 };
 
 const TIERS: Tier[] = [
@@ -42,6 +44,7 @@ const TIERS: Tier[] = [
     cta: "Оформити Преміум",
     featured: true,
     accent: "primary",
+    plan: "premium",
   },
   {
     name: "VIP (для власників)",
@@ -120,15 +123,20 @@ export default function PricingPage() {
                 ))}
               </ul>
 
-              <button
-                className={`w-full py-4 rounded-lg font-label-md text-label-md transition-colors ${
+              {(() => {
+                const cls = `w-full py-4 rounded-lg font-label-md text-label-md transition-colors ${
                   t.featured
                     ? "bg-primary text-on-primary hover:bg-primary-container shadow-md"
                     : "bg-surface-container-low text-primary hover:bg-surface-container border border-outline-variant/20"
-                }`}
-              >
-                {t.cta}
-              </button>
+                }`;
+                return t.plan ? (
+                  <SubscribeButton plan={t.plan} className={cls}>
+                    {t.cta}
+                  </SubscribeButton>
+                ) : (
+                  <button className={cls}>{t.cta}</button>
+                );
+              })()}
             </div>
           ))}
         </div>
