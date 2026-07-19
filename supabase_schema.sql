@@ -14,6 +14,7 @@ create table public.listings (
     clean_description   text,                   -- AI-rewritten, agent language stripped
     price               numeric,
     currency            text check (currency in ('UAH', 'USD', 'EUR')),
+    price_uah           numeric,                -- ціна, нормалізована в гривні (для фільтрів/сортування)
     rooms               smallint,
     district            text,
     city                text not null default 'Львів',
@@ -198,6 +199,7 @@ select
     clean_description,
     price,
     currency,
+    price_uah,
     rooms,
     district,
     city,

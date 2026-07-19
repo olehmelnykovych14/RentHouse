@@ -55,9 +55,12 @@ export default async function Navbar() {
               Увійти
             </Link>
           )}
-          <button className="bg-primary text-on-primary font-label-md text-label-md px-4 py-2 rounded-lg active:scale-95 transition-transform">
+          <Link
+            href="/register"
+            className="bg-primary text-on-primary font-label-md text-label-md px-4 py-2 rounded-lg active:scale-95 transition-transform"
+          >
             Post Listing
-          </button>
+          </Link>
         </div>
       </div>
     </nav>

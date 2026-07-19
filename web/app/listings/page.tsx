@@ -6,6 +6,8 @@ import { getListings, type ListingFilters } from "@/lib/listings";
 
 export const dynamic = "force-dynamic";
 
+export const metadata = { title: "Каталог квартир від власників — RentDirect" };
+
 type SearchParams = { [key: string]: string | string[] | undefined };
 
 function toFilters(sp: SearchParams): ListingFilters {

@@ -174,14 +174,35 @@ def build_photo_urls(realty: dict) -> list[str]:
     return urls
 
 
+# Маркери прихованого ріелтора в тексті: dom.ria не завжди має agency_id, але
+# приватно-розміщені посередники видають себе лексикою. Такі → агенція.
+REALTOR_MARKERS = [
+    "ріелтор", "рієлтор", "ріэлтор", "маклер", "агенц", "агентство",
+    "комісія", "коммисия", "% від", "код об", "без комісії", "код объ",
+]
+
+
+def looks_like_realtor(text: str) -> bool:
+    t = (text or "").lower()
+    return any(m in t for m in REALTOR_MARKERS)
+
+
+def parse_uah_price(realty: dict) -> int | None:
+    """Точна ціна в гривнях із priceObj dom.ria (напр. '40 545' → 40545)."""
+    raw = str((realty.get("priceObj") or {}).get("priceUAH", "")).replace(" ", "").replace(" ", "")
+    try:
+        return int(raw) if raw.isdigit() else None
+    except Exception:
+        return None
+
+
 def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
     """Мапить структурований об'єкт dom.ria у рядок таблиці listings."""
-    # Власник ↔ агенція визначається наявністю agency_id (не полем isOwner,
-    # яке означає «чи ти сам автор оголошення» і для скрапера завжди False).
-    is_owner = not realty.get("agency_id")
+    description = realty.get("description_uk") or realty.get("description") or ""
+    # Власник ↔ агенція: немає agency_id І немає ріелторської лексики в описі.
+    is_owner = not realty.get("agency_id") and not looks_like_realtor(description)
     rooms = realty.get("rooms_count")
     district = realty.get("district_name_uk") or realty.get("district_name")
-    description = realty.get("description_uk") or realty.get("description") or ""
 
     return {
         "source": "dimria",
@@ -192,6 +213,7 @@ def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
         "clean_description": description,   # структуровано; AI-очистку можна додати пізніше
         "price": realty.get("price_total") or realty.get("price"),
         "currency": _CURRENCY.get(realty.get("currency_type"), "UAH"),
+        "price_uah": parse_uah_price(realty),
         "rooms": rooms,
         "district": district,
         "city": realty.get("city_name_uk") or CITY,

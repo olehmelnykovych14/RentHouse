@@ -46,6 +46,15 @@ CITY = "Львів"
 SUPABASE_BUCKET = "listing-photos"   # публічний bucket у Supabase Storage
 MAX_PHOTOS = 15
 
+FX_TO_UAH = {"UAH": 1, "USD": 41, "EUR": 44}
+
+
+def to_uah(price, currency):
+    if price is None:
+        return None
+    rate = FX_TO_UAH.get((currency or "UAH").upper())
+    return round(price * rate) if rate else None
+
 # 5. Сід-список каналів (fallback). Основне джерело — таблиця channel_sources у Supabase;
 #    цей список використовується лише якщо БД недоступна або порожня.
 SEED_CHANNELS = [
@@ -262,6 +271,7 @@ def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw
         "clean_description": extraction.get("clean_description", ""),
         "price": extraction.get("price"),
         "currency": extraction.get("currency"),
+        "price_uah": to_uah(extraction.get("price"), extraction.get("currency")),
         "rooms": extraction.get("rooms"),
         "district": extraction.get("district"),
         "city": CITY,

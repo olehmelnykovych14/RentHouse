@@ -1,6 +1,8 @@
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
+export const metadata = { title: "Тарифи — RentDirect" };
+
 type Tier = {
   name: string;
   price: string;

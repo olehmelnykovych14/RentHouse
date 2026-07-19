@@ -7,6 +7,11 @@ import { formatPrice } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
+export async function generateMetadata({ params }: { params: { id: string } }) {
+  const listing = await getListingById(params.id);
+  return { title: listing?.title ? `${listing.title} — RentDirect` : "Оголошення — RentDirect" };
+}
+
 export default async function ListingDetailPage({ params }: { params: { id: string } }) {
   const listing = await getListingById(params.id);
   if (!listing) notFound();

@@ -5,6 +5,7 @@ export type Listing = {
   title: string | null;
   price: number | null;
   currency: string | null;
+  price_uah: number | null;
   rooms: number | null;
   district: string | null;
   city: string | null;
@@ -30,7 +31,7 @@ export type Listing = {
 };
 
 const SELECT_COLS =
-  "id,title,price,currency,rooms,district,city,area_sqm,property_type,residential_complex,listing_type,commission,commission_verified,probability_of_owner,photos,created_at";
+  "id,title,price,currency,price_uah,rooms,district,city,area_sqm,property_type,residential_complex,listing_type,commission,commission_verified,probability_of_owner,photos,created_at";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const now = () => Date.now();
@@ -38,7 +39,7 @@ const now = () => Date.now();
 // Мок-дані для розробки, поки Supabase не підключено (з дизайну Stitch).
 const MOCK_LISTINGS: Listing[] = [
   {
-    id: "mock-1", title: "2-кімнатна квартира", price: 15000, currency: "UAH",
+    id: "mock-1", title: "2-кімнатна квартира", price: 15000, currency: "UAH", price_uah: 15000,
     rooms: 2, district: "Печерський р-н", city: "Київ", area_sqm: 65,
     property_type: "apartment", residential_complex: null, listing_type: "owner",
     commission: "0%", commission_verified: true, probability_of_owner: 95,
@@ -46,7 +47,7 @@ const MOCK_LISTINGS: Listing[] = [
     photos: ["https://lh3.googleusercontent.com/aida-public/AB6AXuBnNOgvowNbF4IjICU05KP9LfcBvN0zF0c3dawAFLQMWQJzRqB5M0eX33UP2QIlK7P0zsurMC0hrfUUuCC8TpFoWMJszMZ-mMHhSBqi78rB-eglovcpT3IBxFg_ocvL6uwRRF2cUVSFfelO7eRupPkebuY-kwmQ6HeyDa0PUawET-eoYtviBmFbL8x-GiIBM85Gz6-Ro8exVPdCi4xooL30mD8_Wvet-3ecgSZU7DY39_q-eU33W6Tt"],
   },
   {
-    id: "mock-2", title: "3-кімнатна квартира", price: 22000, currency: "UAH",
+    id: "mock-2", title: "3-кімнатна квартира", price: 22000, currency: "UAH", price_uah: 22000,
     rooms: 3, district: "Сихівський р-н", city: "Львів", area_sqm: 80,
     property_type: "apartment", residential_complex: "Новобудова", listing_type: "owner",
     commission: null, commission_verified: false, probability_of_owner: 90,
@@ -54,7 +55,7 @@ const MOCK_LISTINGS: Listing[] = [
     photos: ["https://lh3.googleusercontent.com/aida-public/AB6AXuCbrz7Gc3tzmISdUrr7Bf5OH7_tmI_LzKcpznu9v7LaiZoCwPFtedMF83Zp_STTZ7_KY7mNDYjV1s3wy35rCFnKDjJ_VYV6sytc9rjjwM7kOhpkk29T8arLLUuxeT-ynerst9dYP89w74t34o6Cf8LaURUQje132seB1r2rgXObkqiB543kUNSeysQh4Nxok7bs7NNuJIHURV7dXKeRikhf8iFZIfrANEStbP0TskyVUXaIgDSkGqYI"],
   },
   {
-    id: "mock-3", title: "1-кімнатна квартира", price: 12500, currency: "UAH",
+    id: "mock-3", title: "1-кімнатна квартира", price: 12500, currency: "UAH", price_uah: 12500,
     rooms: 1, district: "Приморський р-н", city: "Одеса", area_sqm: 45,
     property_type: "apartment", residential_complex: null, listing_type: "owner",
     commission: null, commission_verified: false, probability_of_owner: 88,
@@ -118,8 +119,9 @@ export async function getListings(
   if (f.property_type) query = query.eq("property_type", f.property_type);
   const pMin = num(f.price_min);
   const pMax = num(f.price_max);
-  if (pMin !== undefined) query = query.gte("price", pMin);
-  if (pMax !== undefined) query = query.lte("price", pMax);
+  // Ціна фільтрується в гривні (price_uah), бо оголошення бувають у USD/EUR.
+  if (pMin !== undefined) query = query.gte("price_uah", pMin);
+  if (pMax !== undefined) query = query.lte("price_uah", pMax);
   const aMin = num(f.area_min);
   const aMax = num(f.area_max);
   if (aMin !== undefined) query = query.gte("area_sqm", aMin);

@@ -53,6 +53,16 @@ CITY = "Львів"
 SUPABASE_BUCKET = "listing-photos"   # публічний bucket у Supabase Storage
 MAX_PHOTOS      = 15                  # скільки фото зберігати на оголошення
 
+# Приблизні курси для нормалізації ціни в гривні (для фільтрів/сортування).
+FX_TO_UAH = {"UAH": 1, "USD": 41, "EUR": 44}
+
+
+def to_uah(price, currency) -> int | None:
+    if price is None:
+        return None
+    rate = FX_TO_UAH.get((currency or "UAH").upper())
+    return round(price * rate) if rate else None
+
 SEEN_ADS_FILE  = Path("seen_ads.json")
 MIN_OWNER_PROB = 70   # Мінімальний % щоб відправити в Telegram
 
@@ -547,6 +557,7 @@ def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str, photos: l
         "clean_description": extraction.get("clean_description", ""),
         "price": extraction.get("price"),
         "currency": extraction.get("currency"),
+        "price_uah": to_uah(extraction.get("price"), extraction.get("currency")),
         "rooms": extraction.get("rooms"),
         "district": extraction.get("district"),
         "city": CITY,

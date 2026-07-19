@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const SELECT =
-  "id,title,price,currency,rooms,district,city,area_sqm,clean_description,listing_type,photos,created_at";
+  "id,title,price,currency,price_uah,rooms,district,city,area_sqm,clean_description,listing_type,photos,created_at";
 
 // Інструмент, який AI викликає, витягнувши параметри з природного запиту.
 const searchTool = {
@@ -82,8 +82,8 @@ async function runSearch(args: Args): Promise<Listing[]> {
   let q = supabase.from("listings_public").select(SELECT).eq("listing_type", "owner");
 
   if (args.district) q = q.ilike("district", `%${districtStem(args.district)}%`);
-  if (typeof args.min_price === "number") q = q.gte("price", args.min_price);
-  if (typeof args.max_price === "number") q = q.lte("price", args.max_price);
+  if (typeof args.min_price === "number") q = q.gte("price_uah", args.min_price);
+  if (typeof args.max_price === "number") q = q.lte("price_uah", args.max_price);
   if (typeof args.rooms === "number") q = q.eq("rooms", args.rooms);
   if (args.furnished === true) q = q.eq("has_furniture", true);
   // Немає колонки pets_allowed → шукаємо ознаки в описі (best-effort).
@@ -94,7 +94,7 @@ async function runSearch(args: Args): Promise<Listing[]> {
   }
 
   q = args.sort === "cheapest"
-    ? q.order("price", { ascending: true })
+    ? q.order("price_uah", { ascending: true })
     : q.order("created_at", { ascending: false });
 
   const { data, error } = await q.limit(8);
@@ -147,7 +147,7 @@ export async function POST(req: Request) {
     const choice = first.choices[0].message;
     const toolCall = choice.tool_calls?.[0];
 
-    if (!toolCall) {
+    if (!toolCall || toolCall.type !== "function") {
       return NextResponse.json({ summary: choice.content ?? "Уточніть, будь ласка, параметри пошуку.", listings: [] });
     }
 
