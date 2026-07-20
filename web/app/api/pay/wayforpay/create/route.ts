@@ -11,11 +11,27 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+/**
+ * Базовий URL беремо з самого запиту (host/x-forwarded-*), а не з env:
+ * так returnUrl/serviceUrl автоматично коректні на проді, тунелі й localhost.
+ * NEXT_PUBLIC_SITE_URL лишається запасним варіантом.
+ */
+function baseUrlFrom(req: Request): { origin: string; domain: string } {
+  const h = req.headers;
+  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "";
+  if (host) {
+    const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+    return { origin: `${proto}://${host}`, domain: host.split(":")[0] };
+  }
+  const fallback = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  return { origin: fallback, domain: new URL(fallback).hostname };
+}
+
 export async function POST(req: Request) {
   const merchantAccount = process.env.WAYFORPAY_MERCHANT_ACCOUNT;
-  const merchantDomainName = process.env.WAYFORPAY_MERCHANT_DOMAIN;
   const secret = process.env.WAYFORPAY_SECRET_KEY;
-  const site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const { origin: site, domain } = baseUrlFrom(req);
+  const merchantDomainName = domain || process.env.WAYFORPAY_MERCHANT_DOMAIN || "";
 
   if (!merchantAccount || !merchantDomainName || !secret) {
     return NextResponse.json({ error: "WayForPay не налаштовано" }, { status: 500 });
