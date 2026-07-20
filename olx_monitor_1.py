@@ -44,11 +44,23 @@ SUPABASE_URL = get_secret("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = get_secret("SUPABASE_SERVICE_KEY")
 
 # URL-и для моніторингу (продаж + оренда квартир у Львові — змініть під своє місто)
-MONITOR_URLS = [
-    "https://www.olx.ua/uk/nedvizhimost/kvartiry/dolgosrochnaya-arenda-kvartir/lvov/?search%5Bdistrict_id%5D=135&currency=UAH",
-    "https://www.olx.ua/uk/nedvizhimost/kvartiry/dolgosrochnaya-arenda-kvartir/lvov/?search%5Bdistrict_id%5D=135&currency=USD"
+OLX_BASE = "https://www.olx.ua/uk/nedvizhimost/kvartiry/dolgosrochnaya-arenda-kvartir"
+
+# Міста для моніторингу. Місто береться з джерела й пишеться в рядок оголошення.
+MONITOR_SOURCES = [
+    {"city": "Київ", "url": f"{OLX_BASE}/kiev/"},
+    {"city": "Львів", "url": f"{OLX_BASE}/lvov/"},
+    {"city": "Одеса", "url": f"{OLX_BASE}/odessa/"},
+    {"city": "Дніпро", "url": f"{OLX_BASE}/dnepr/"},
+    {"city": "Харків", "url": f"{OLX_BASE}/harkov/"},
+    {"city": "Вінниця", "url": f"{OLX_BASE}/vinnica/"},
+    {"city": "Тернопіль", "url": f"{OLX_BASE}/ternopol/"},
+    {"city": "Івано-Франківськ", "url": f"{OLX_BASE}/ivano-frankovsk/"},
+    {"city": "Запоріжжя", "url": f"{OLX_BASE}/zaporozhe/"},
+    {"city": "Полтава", "url": f"{OLX_BASE}/poltava/"},
 ]
-CITY = "Львів"
+
+CITY = "Львів"   # запасне значення, якщо джерело не вказало місто
 
 SUPABASE_BUCKET = "listing-photos"   # публічний bucket у Supabase Storage
 MAX_PHOTOS      = 15                  # скільки фото зберігати на оголошення
@@ -544,7 +556,7 @@ def upload_photos_to_storage(session: requests.Session, photo_urls: list[str], a
     return public_urls
 
 
-def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str, photos: list[str]) -> None:
+def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str, photos: list[str], city: str | None = None) -> None:
     if supabase is None:
         return
 
@@ -560,7 +572,7 @@ def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str, photos: l
         "price_uah": to_uah(extraction.get("price"), extraction.get("currency")),
         "rooms": extraction.get("rooms"),
         "district": extraction.get("district"),
-        "city": CITY,
+        "city": city or CITY,
         "has_furniture": extraction.get("has_furniture"),
         "area_sqm": extraction.get("area_sqm"),
         "floor": extraction.get("floor"),
@@ -675,7 +687,7 @@ def process_ad(session: requests.Session, ad_stub: dict, seen_ads: set) -> str |
 
     # Зберігаємо в Supabase все, що дійшло до AI-аналізу — поріг застосовується
     # на рівні фронтенду/запиту, а не на етапі збору даних.
-    upsert_listing_to_supabase(ad, extraction, ad_id, photos)
+    upsert_listing_to_supabase(ad, extraction, ad_id, photos, ad_stub.get("city"))
 
     if probability >= MIN_OWNER_PROB:
         message = format_telegram_message(ad, probability, reasoning)
@@ -692,7 +704,7 @@ def process_ad(session: requests.Session, ad_stub: dict, seen_ads: set) -> str |
 def run_monitor():
     log.info("=" * 60)
     log.info("🏠 OLX Owner Detector — старт")
-    log.info(f"Мінімальний поріг: {MIN_OWNER_PROB}% | Сторінок: {MAX_PAGES} | URL-ів: {len(MONITOR_URLS)}")
+    log.info(f"Мінімальний поріг: {MIN_OWNER_PROB}% | Сторінок: {MAX_PAGES} | Міст: {len(MONITOR_SOURCES)}")
     log.info("=" * 60)
 
     seen_ads = load_seen_ads()
@@ -706,9 +718,11 @@ def run_monitor():
         session = make_session()  # Нова сесія = нові cookies
 
         new_count = 0
-        for base_url in MONITOR_URLS:
-            log.info(f"\n🌐 Сканування ({MAX_PAGES} стор.): {base_url}")
-            ad_stubs = fetch_listing_urls(session, base_url)
+        for src in MONITOR_SOURCES:
+            log.info(f"\n🏙️ {src['city']} — сканування ({MAX_PAGES} стор.)")
+            ad_stubs = fetch_listing_urls(session, src["url"])
+            for stub in ad_stubs:
+                stub["city"] = src["city"]
             stealth_sleep(2, 5)
 
             for stub in ad_stubs:
