@@ -44,9 +44,23 @@ def get_secret(name: str, default: str = "") -> str:
 SUPABASE_URL = get_secret("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = get_secret("SUPABASE_SERVICE_KEY")
 
-CITY = "Львів"
+CITY = "Львів"   # запасне значення; реальне місто береться з даних оголошення
 SUPABASE_BUCKET = "listing-photos"
 MAX_PHOTOS = 15
+
+# Міста для моніторингу (state_id/city_id з dom.ria; в обласних центрів вони збігаються).
+MONITOR_CITIES = [
+    {"name": "Київ", "state_id": 10, "city_id": 10},
+    {"name": "Львів", "state_id": 5, "city_id": 5},
+    {"name": "Одеса", "state_id": 12, "city_id": 12},
+    {"name": "Дніпро", "state_id": 11, "city_id": 11},
+    {"name": "Харків", "state_id": 22, "city_id": 22},
+    {"name": "Вінниця", "state_id": 1, "city_id": 1},
+    {"name": "Тернопіль", "state_id": 3, "city_id": 3},
+    {"name": "Івано-Франківськ", "state_id": 15, "city_id": 15},
+    {"name": "Запоріжжя", "state_id": 14, "city_id": 14},
+    {"name": "Полтава", "state_id": 20, "city_id": 20},
+]
 
 SEARCH_API = "https://dom.ria.com/node/searchEngine/v2/"
 DETAIL_URL_TMPL = "https://dom.ria.com/uk/realty-{}.html"
@@ -58,8 +72,6 @@ SEARCH_PARAMS = {
     "category": 1,
     "realty_type": 2,
     "operation_type": 3,
-    "state_id": 5,
-    "city_id": 5,
     "ch": "242_239,246_244",
     "excludeSold": 1,
     "limit": 20,
@@ -129,10 +141,11 @@ def stealth_sleep(min_s: float, max_s: float) -> None:
 # ─────────────────────────────────────────────
 # ПОШУК + ДЕТАЛІ
 # ─────────────────────────────────────────────
-def fetch_ids(session: requests.Session, page: int) -> tuple[list[int], int]:
-    """Повертає (список realty_id, загальна кількість) для сторінки пошуку."""
+def fetch_ids(session: requests.Session, page: int, city: dict) -> tuple[list[int], int]:
+    """Повертає (список realty_id, загальна кількість) для сторінки пошуку в місті."""
     try:
-        resp = session.get(SEARCH_API, params={**SEARCH_PARAMS, "page": page}, timeout=20)
+        params = {**SEARCH_PARAMS, "state_id": city["state_id"], "city_id": city["city_id"], "page": page}
+        resp = session.get(SEARCH_API, params=params, timeout=20)
         resp.raise_for_status()
         data = resp.json()
         return data.get("items", []), data.get("count", 0)
@@ -305,14 +318,16 @@ def run_monitor():
         log.info(f"\n🔄 Цикл #{cycle}")
         session = make_session()
 
-        for page in range(0, MAX_PAGES):
-            ids, count = fetch_ids(session, page)
-            if page == 0:
-                log.info(f"🔎 Знайдено {count} оголошень від власника (беремо до {MAX_PAGES} стор.)")
-            if not ids:
-                break
-            for realty_id in ids:
-                process_id(session, realty_id, seen)
+        for city in MONITOR_CITIES:
+            log.info(f"\n🏙️ {city['name']}")
+            for page in range(0, MAX_PAGES):
+                ids, count = fetch_ids(session, page, city)
+                if page == 0:
+                    log.info(f"🔎 {city['name']}: {count} оголошень від власника (до {MAX_PAGES} стор.)")
+                if not ids:
+                    break
+                for realty_id in ids:
+                    process_id(session, realty_id, seen)
 
         save_seen_ads(seen)
         pause = random.uniform(*CYCLE_PAUSE)
