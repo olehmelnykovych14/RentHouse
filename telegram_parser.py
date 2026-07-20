@@ -153,19 +153,30 @@ def seed_channels_to_db() -> None:
         print(f"⚠️ Не вдалось залити сід-канали: {e}")
 
 
+# Місто на канал: заповнюється з channel_sources.city при старті.
+CHANNEL_CITY: dict[str, str] = {}
+
+
 def load_active_channels() -> list[str]:
-    """Активні telegram-канали з БД. Fallback — сід-список, якщо БД порожня/недоступна."""
+    """
+    Активні telegram-канали з БД + мапа «канал → місто» (для мульти-міста).
+    Fallback — сід-список, якщо БД порожня/недоступна.
+    """
     if supabase is None:
         return SEED_CHANNELS
     try:
         resp = (
             supabase.table("channel_sources")
-            .select("identifier")
+            .select("identifier, city")
             .eq("platform", "telegram")
             .eq("status", "active")
             .execute()
         )
-        channels = [r["identifier"] for r in (resp.data or [])]
+        rows = resp.data or []
+        for r in rows:
+            if r.get("city"):
+                CHANNEL_CITY[r["identifier"].lstrip("@").lower()] = r["city"]
+        channels = [r["identifier"] for r in rows]
         return channels or SEED_CHANNELS
     except Exception as e:
         print(f"⚠️ Не вдалось завантажити канали з БД ({e}), використовую сід-список")
@@ -258,7 +269,7 @@ async def collect_photos(event, messages, external_id: str) -> list[str]:
     return public_urls
 
 
-def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw_text: str, photos: list[str]) -> None:
+def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw_text: str, photos: list[str], city: str | None = None) -> None:
     if supabase is None:
         return
 
@@ -274,7 +285,7 @@ def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw
         "price_uah": to_uah(extraction.get("price"), extraction.get("currency")),
         "rooms": extraction.get("rooms"),
         "district": extraction.get("district"),
-        "city": CITY,
+        "city": city or CITY,
         "has_furniture": extraction.get("has_furniture"),
         "area_sqm": extraction.get("area_sqm"),
         "floor": extraction.get("floor"),
@@ -325,7 +336,9 @@ async def handler(event):
 
         # Зберігаємо в Supabase все, що дійшло до AI-аналізу — поріг застосовується
         # на рівні фронтенду/запиту, а не на етапі збору даних.
-        upsert_listing_to_supabase(extraction, external_id, link, text, photos)
+        # Місто визначаємо за каналом (channel_sources.city), інакше — запасне CITY.
+        city = CHANNEL_CITY.get((getattr(chat, "username", "") or "").lower())
+        upsert_listing_to_supabase(extraction, external_id, link, text, photos, city)
 
         if prob >= MIN_OWNER_PROB:
             msg = (
