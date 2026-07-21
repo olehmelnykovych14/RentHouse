@@ -200,6 +200,34 @@ def looks_like_realtor(text: str) -> bool:
     return any(m in t for m in REALTOR_MARKERS)
 
 
+# Заяви про нульову комісію. УВАГА: це лише твердження з тексту, не перевірений факт —
+# тому commission_verified лишається False, а в UI показуємо «0% заявлено».
+NO_FEE_MARKERS = [
+    "без комісії", "безкомісії", "0% комісії", "комісія 0", "комісія — 0", "комісія: 0",
+    "без комиссии", "0% комиссии", "комиссия 0", "без відсотків", "no commission",
+]
+
+
+def claims_no_fee(text: str) -> bool:
+    t = (text or "").lower()
+    return any(m in t for m in NO_FEE_MARKERS)
+
+
+def parse_commission(realty: dict) -> int | None:
+    """
+    Комісія зі структурованої характеристики dom.ria (charId 2014,
+    напр. «Комісія за послуги 100 %»). Повертає відсоток або None, якщо поля нема.
+    Відсутність поля = посередника нема (власник).
+    """
+    for c in (realty.get("mainCharacteristics") or {}).get("chars", []):
+        v = c.get("value")
+        s = " ".join(v) if isinstance(v, list) else str(v)
+        if "коміс" in s.lower() or "комис" in s.lower():
+            m = re.search(r"(\d+)\s*%", s)
+            return int(m.group(1)) if m else None
+    return None
+
+
 def parse_uah_price(realty: dict) -> int | None:
     """Точна ціна в гривнях із priceObj dom.ria (напр. '40 545' → 40545)."""
     raw = str((realty.get("priceObj") or {}).get("priceUAH", "")).replace(" ", "").replace(" ", "")
@@ -213,7 +241,21 @@ def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
     """Мапить структурований об'єкт dom.ria у рядок таблиці listings."""
     description = realty.get("description_uk") or realty.get("description") or ""
     # Власник ↔ агенція: немає agency_id І немає ріелторської лексики в описі.
-    is_owner = not realty.get("agency_id") and not looks_like_realtor(description)
+    # Комісія — найнадійніший сигнал: dom.ria зберігає її структуровано.
+    # Є комісія > 0 → посередник бере гроші (навіть якщо agency_id порожній).
+    # Поля нема → посередника нема → власник (за відсутності інших ознак).
+    fee = parse_commission(realty)
+    has_agency = bool(realty.get("agency_id")) or looks_like_realtor(description)
+
+    if fee is not None and fee > 0:
+        listing_type, probability, commission = "agency", 15, f"{fee}%"
+    elif fee == 0 or claims_no_fee(description):
+        listing_type, probability, commission = "agency_no_fee", 30, "0%"
+    elif has_agency:
+        listing_type, probability, commission = "agency", 15, None
+    else:
+        listing_type, probability, commission = "owner", 90, None
+
     rooms = realty.get("rooms_count")
     district = realty.get("district_name_uk") or realty.get("district_name")
 
@@ -239,12 +281,12 @@ def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
         "lat": realty.get("latitude"),
         "lng": realty.get("longitude"),
         # Класифікація з нативного прапорця dom.ria, не з тексту
-        "listing_type": "owner" if is_owner else "agency",
-        "commission": None,
-        "commission_verified": False,
+        "listing_type": listing_type,
+        "commission": commission,
+        "commission_verified": False,   # заявлене «0%» не перевірене
         "photos": photos,
-        "probability_of_owner": 90 if is_owner else 15,
-        "ai_reasoning": f"DIM.RIA: {'власник' if is_owner else 'агенція'} (agency_id={realty.get('agency_id')})",
+        "probability_of_owner": probability,
+        "ai_reasoning": f"DIM.RIA: {listing_type} (agency_id={realty.get('agency_id')})",
         "seller_name": "",
     }
 
