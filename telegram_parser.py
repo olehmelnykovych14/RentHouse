@@ -136,17 +136,31 @@ DEFAULT_EXTRACTION = {
 }
 
 MIN_OWNER_PROB = 70
-NO_FEE_TEXT = ["0%", "0 %", "без комісії", "безкомісії", "без комиссии", "0 грн", "немає комісії"]
+# Числову комісію парсимо, а не шукаємо підрядком: "0%" міститься в "50%"/"100%".
+# Тільки НЕчислові фрази — числа (% чи грн) обробляє парсер нижче.
+NO_FEE_PHRASES = ["без комісі", "без комиси", "немає комісі", "нема комісі", "no commission"]
+EMPTY_VALUES = {"null", "none", "-", "не вказано", "не вказана"}
+AMOUNT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(%|грн|uah|₴)", re.IGNORECASE)
 
 
 def classify(extraction: dict) -> tuple[str, str | None]:
     """Повертає (listing_type, commission) за оцінкою AI + комісією з тексту."""
-    commission = (extraction.get("commission") or "").strip() or None
+    raw = (extraction.get("commission") or "").strip()
+    if raw.lower() in EMPTY_VALUES:
+        raw = ""
+    commission = raw or None
+
     if extraction.get("probability_of_owner", 0) >= MIN_OWNER_PROB:
         return "owner", commission
-    low = (commission or "").lower()
-    if commission and any(m in low for m in NO_FEE_TEXT):
-        return "agency_no_fee", commission
+
+    if commission:
+        low = commission.lower()
+        m = AMOUNT_RE.search(low)
+        if m:
+            amount = float(m.group(1).replace(",", "."))
+            return ("agency_no_fee" if amount == 0 else "agency"), commission
+        if any(p in low for p in NO_FEE_PHRASES):
+            return "agency_no_fee", commission
     return "agency", commission
 
 
