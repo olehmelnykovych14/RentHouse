@@ -222,9 +222,18 @@ def parse_commission(realty: dict) -> int | None:
     for c in (realty.get("mainCharacteristics") or {}).get("chars", []):
         v = c.get("value")
         s = " ".join(v) if isinstance(v, list) else str(v)
-        if "коміс" in s.lower() or "комис" in s.lower():
-            m = re.search(r"(\d+)\s*%", s)
-            return int(m.group(1)) if m else None
+        low = s.lower()
+        if "коміс" not in low and "комис" not in low:
+            continue
+        m = re.search(r"(\d+)\s*%", s)
+        if m:
+            return int(m.group(1))
+        # charId 2021 віддає «Без комісії» словами, без числа. Раніше це
+        # повертало None («поля немає») — і агенція з явною нульовою комісією
+        # лишалась звичайною agency, тобто не потрапляла в каталог.
+        if "без коміс" in low or "без комис" in low:
+            return 0
+        return None
     return None
 
 

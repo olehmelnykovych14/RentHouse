@@ -2,9 +2,12 @@ import CityInput from "./CityInput";
 
 export default function Hero() {
   return (
-    <section className="relative min-h-[600px] md:min-h-[760px] flex flex-col items-center justify-center px-margin-mobile md:px-margin-desktop py-24 bg-surface-container-low overflow-hidden">
+    // overflow-hidden свідомо НЕ на секції: він обрізав би випадайку міста,
+    // якій треба виходити за нижню межу Hero. Його завдання — тримати
+    // масштабоване фонове зображення, тож він живе на обгортці фону.
+    <section className="relative min-h-[600px] md:min-h-[760px] flex flex-col items-center justify-center px-margin-mobile md:px-margin-desktop py-24 bg-surface-container-low">
       {/* Фонове зображення (плейсхолдер) */}
-      <div className="absolute inset-0 z-0">
+      <div className="absolute inset-0 z-0 overflow-hidden">
         <div
           className="bg-cover bg-center w-full h-full opacity-30"
           style={{

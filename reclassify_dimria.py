@@ -15,7 +15,7 @@ from supabase import create_client
 
 sb = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY)
 rows = (
-    sb.table("listings").select("id,external_id,listing_type,probability_of_owner")
+    sb.table("listings").select("id,external_id,listing_type,probability_of_owner,ai_reasoning")
     .eq("source", "dimria").limit(1000).execute().data
 )
 
@@ -31,7 +31,13 @@ for r in rows:
 
     new = dm.map_realty_to_row(realty, [])
     old_type, new_type = r["listing_type"], new["listing_type"]
-    if old_type == new_type and r["probability_of_owner"] == new["probability_of_owner"]:
+    # Пояснення теж звіряємо: воно і є слідом аудиту, тож застаріле
+    # формулювання («agency_id=None») ховає справжню підставу рішення.
+    if (
+        old_type == new_type
+        and r["probability_of_owner"] == new["probability_of_owner"]
+        and r.get("ai_reasoning") == new["ai_reasoning"]
+    ):
         continue
 
     sb.table("listings").update({
