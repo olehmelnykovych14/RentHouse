@@ -439,6 +439,10 @@ LISTING_JSON_SCHEMA = {
                 "description": "Тип житла",
             },
             "residential_complex": {"type": ["string", "null"], "description": "Назва ЖК, якщо згадується"},
+            "commission": {
+                "type": ["string", "null"],
+                "description": "Комісія посередника як у тексті: '0%', 'без комісії', '50%', '1000 грн'. null — не згадано",
+            },
             "clean_description": {
                 "type": "string",
                 "description": "Опис переписаний без рекламних штампів, посилань на агентство та закликів звертатись",
@@ -447,7 +451,7 @@ LISTING_JSON_SCHEMA = {
         "required": [
             "probability_of_owner", "reasoning", "price", "currency",
             "rooms", "district", "has_furniture", "area_sqm", "floor",
-            "total_floors", "property_type", "residential_complex", "clean_description",
+            "total_floors", "property_type", "residential_complex", "commission", "clean_description",
         ],
         "additionalProperties": False,
     },
@@ -466,8 +470,25 @@ DEFAULT_EXTRACTION = {
     "total_floors": None,
     "property_type": None,
     "residential_complex": None,
+    "commission": None,
     "clean_description": "",
 }
+
+
+# Класифікація за оцінкою AI + комісією з тексту.
+NO_FEE_TEXT = ["0%", "0 %", "без комісії", "безкомісії", "без комиссии", "0 грн", "немає комісії"]
+
+
+def classify(extraction: dict) -> tuple[str, str | None]:
+    """Повертає (listing_type, commission)."""
+    commission = (extraction.get("commission") or "").strip() or None
+    prob = extraction.get("probability_of_owner", 0)
+    if prob >= MIN_OWNER_PROB:
+        return "owner", commission
+    low = (commission or "").lower()
+    if commission and any(m in low for m in NO_FEE_TEXT):
+        return "agency_no_fee", commission
+    return "agency", commission
 
 
 def level3_ai_analysis(ad: dict) -> dict:
@@ -492,7 +513,8 @@ def level3_ai_analysis(ad: dict) -> dict:
 
 Також витягни: ціну (число), валюту, кількість кімнат, район міста (якщо згаданий),
 чи є меблі, площу в м², поверх, поверховість будинку, тип житла (apartment/house/room/studio),
-назву ЖК (якщо є), і перепиши опис без рекламних штампів та закликів звертатись (clean_description)."""
+назву ЖК (якщо є), КОМІСІЮ посередника як вона вказана в тексті ('0%', 'без комісії', '50%', або null
+якщо не згадано), і перепиши опис без рекламних штампів та закликів звертатись (clean_description)."""
 
     user_content = f"""Оголошення:
 НАЗВА: {ad['title']}
@@ -560,6 +582,8 @@ def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str, photos: l
     if supabase is None:
         return
 
+    listing_type, commission = classify(extraction)
+
     row = {
         "source": "olx",
         "external_id": ad_id,
@@ -579,6 +603,9 @@ def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str, photos: l
         "total_floors": extraction.get("total_floors"),
         "property_type": extraction.get("property_type"),
         "residential_complex": extraction.get("residential_complex"),
+        "listing_type": listing_type,
+        "commission": commission,
+        "commission_verified": False,
         "photos": photos,
         "probability_of_owner": extraction["probability_of_owner"],
         "ai_reasoning": extraction.get("reasoning", ""),
