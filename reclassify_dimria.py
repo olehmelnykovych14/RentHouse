@@ -15,7 +15,8 @@ from supabase import create_client
 
 sb = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY)
 rows = (
-    sb.table("listings").select("id,external_id,listing_type,probability_of_owner,ai_reasoning")
+    sb.table("listings")
+    .select("id,external_id,listing_type,probability_of_owner,ai_reasoning,owner_verified")
     .eq("source", "dimria").limit(1000).execute().data
 )
 
@@ -37,6 +38,7 @@ for r in rows:
         old_type == new_type
         and r["probability_of_owner"] == new["probability_of_owner"]
         and r.get("ai_reasoning") == new["ai_reasoning"]
+        and r.get("owner_verified") == new["owner_verified"]
     ):
         continue
 
@@ -44,6 +46,7 @@ for r in rows:
         "listing_type": new_type,
         "probability_of_owner": new["probability_of_owner"],
         "commission": new["commission"],
+        "owner_verified": new["owner_verified"],
         "ai_reasoning": new["ai_reasoning"],
     }).eq("id", r["id"]).execute()
 

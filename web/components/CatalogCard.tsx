@@ -6,6 +6,9 @@ import FavoriteButton from "./FavoriteButton";
 export default function CatalogCard({ listing, favorited = false }: { listing: Listing; favorited?: boolean }) {
   const locked = isLocked(listing); // subscribed=false, поки нема auth
   const isNoFeeAgency = listing.listing_type === "agency_no_fee";
+  // «Перевірений» — лише там, де джерело прямо назвало продавця власником.
+  // Решта — висновок від відсутності ознак посередника, і мітка це визнає.
+  const verified = listing.owner_verified === true;
   const photo = listing.photos?.[0];
   const location = [listing.city, listing.district].filter(Boolean).join(", ");
   const tags: string[] = [];
@@ -25,21 +28,40 @@ export default function CatalogCard({ listing, favorited = false }: { listing: L
           />
         )}
 
-        {/* AI-оцінка показується лише там, де вона щось означає: для агенції
-            без комісії питання «чи це власник» не стоїть — це не власник. */}
-        {!isNoFeeAgency && (
-          <div className="absolute top-2 left-2 z-10 bg-primary text-on-primary px-2 py-1 rounded font-caption text-caption flex items-center gap-1 shadow-sm">
-            🤖 AI-Оцінка: {listing.probability_of_owner ?? "?"}% Власник
-          </div>
-        )}
+        {/* Обидві мітки в одному ряду: як окремі absolute-елементи вони не знали
+            одна про одну й накладались, щойно текст ставав довшим. flex-wrap —
+            запобіжник на вузьких картках. */}
+        <div className="absolute top-2 left-2 right-2 z-10 flex flex-wrap items-start justify-between gap-1.5">
+          {/* Для агенції без комісії питання «чи це власник» не стоїть. */}
+          {!isNoFeeAgency && (
+            <div className="bg-primary text-on-primary px-2 py-1 rounded font-caption text-caption flex items-center gap-1 shadow-sm shrink-0">
+              🤖 AI: {listing.probability_of_owner ?? "?"}% власник
+            </div>
+          )}
 
-        {/* Мітка типу. Агенцію без комісії НЕ називаємо власником —
-            користувач має бачити, з ким матиме справу. */}
-        <div className="absolute top-2 right-2 z-10 bg-secondary/10 text-secondary-container backdrop-blur-sm px-2 py-1 rounded font-caption text-caption flex items-center gap-1 border border-secondary/20">
-          <span className="material-symbols-outlined text-[14px]">
-            {isNoFeeAgency ? "percent" : "verified"}
-          </span>
-          {isNoFeeAgency ? "Агенція • 0% комісії" : "Власник"}
+          {/* Агенцію без комісії НЕ називаємо власником, а висновок від
+              відсутності ознак — не називаємо перевіркою. */}
+          <div
+            className={`ml-auto backdrop-blur-sm px-2 py-1 rounded font-caption text-caption flex items-center gap-1 border shrink-0 ${
+              verified
+                ? "bg-secondary/10 text-secondary-container border-secondary/20"
+                : "bg-surface-container-lowest/85 text-on-surface-variant border-outline-variant/40"
+            }`}
+            title={
+              verified
+                ? "Джерело прямо вказало, що оголошення подав власник"
+                : "Джерело не вказало, хто подав оголошення. Ознак посередника не виявлено — це не те саме, що підтверджене власництво."
+            }
+          >
+            <span className="material-symbols-outlined text-[14px]">
+              {isNoFeeAgency ? "percent" : verified ? "verified" : "search"}
+            </span>
+            {isNoFeeAgency
+              ? "Агенція • 0% комісії"
+              : verified
+                ? "Перевірений власник"
+                : "Без ознак посередника"}
+          </div>
         </div>
 
         {/* Обране */}

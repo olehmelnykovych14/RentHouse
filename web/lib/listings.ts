@@ -13,6 +13,8 @@ export type Listing = {
   property_type: string | null;
   residential_complex: string | null;
   listing_type: string | null;
+  /** true лише коли джерело прямо назвало продавця власником (див. migrations/002). */
+  owner_verified: boolean | null;
   commission: string | null;
   commission_verified: boolean | null;
   probability_of_owner: number | null;
@@ -38,7 +40,7 @@ export type Listing = {
 const CATALOG_TYPES = ["owner", "agency_no_fee"];
 
 const SELECT_COLS =
-  "id,title,price,currency,price_uah,rooms,district,city,area_sqm,property_type,residential_complex,listing_type,commission,commission_verified,probability_of_owner,photos,created_at";
+  "id,title,price,currency,price_uah,rooms,district,city,area_sqm,property_type,residential_complex,listing_type,owner_verified,commission,commission_verified,probability_of_owner,photos,created_at";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const now = () => Date.now();
@@ -48,7 +50,7 @@ const MOCK_LISTINGS: Listing[] = [
   {
     id: "mock-1", title: "2-кімнатна квартира", price: 15000, currency: "UAH", price_uah: 15000,
     rooms: 2, district: "Печерський р-н", city: "Київ", area_sqm: 65,
-    property_type: "apartment", residential_complex: null, listing_type: "owner",
+    property_type: "apartment", residential_complex: null, listing_type: "owner", owner_verified: true,
     commission: "0%", commission_verified: true, probability_of_owner: 95,
     created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(), // свіже → замок
     photos: ["https://lh3.googleusercontent.com/aida-public/AB6AXuBnNOgvowNbF4IjICU05KP9LfcBvN0zF0c3dawAFLQMWQJzRqB5M0eX33UP2QIlK7P0zsurMC0hrfUUuCC8TpFoWMJszMZ-mMHhSBqi78rB-eglovcpT3IBxFg_ocvL6uwRRF2cUVSFfelO7eRupPkebuY-kwmQ6HeyDa0PUawET-eoYtviBmFbL8x-GiIBM85Gz6-Ro8exVPdCi4xooL30mD8_Wvet-3ecgSZU7DY39_q-eU33W6Tt"],
@@ -56,7 +58,7 @@ const MOCK_LISTINGS: Listing[] = [
   {
     id: "mock-2", title: "3-кімнатна квартира", price: 22000, currency: "UAH", price_uah: 22000,
     rooms: 3, district: "Сихівський р-н", city: "Львів", area_sqm: 80,
-    property_type: "apartment", residential_complex: "Новобудова", listing_type: "owner",
+    property_type: "apartment", residential_complex: "Новобудова", listing_type: "owner", owner_verified: true,
     commission: null, commission_verified: false, probability_of_owner: 90,
     created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
     photos: ["https://lh3.googleusercontent.com/aida-public/AB6AXuCbrz7Gc3tzmISdUrr7Bf5OH7_tmI_LzKcpznu9v7LaiZoCwPFtedMF83Zp_STTZ7_KY7mNDYjV1s3wy35rCFnKDjJ_VYV6sytc9rjjwM7kOhpkk29T8arLLUuxeT-ynerst9dYP89w74t34o6Cf8LaURUQje132seB1r2rgXObkqiB543kUNSeysQh4Nxok7bs7NNuJIHURV7dXKeRikhf8iFZIfrANEStbP0TskyVUXaIgDSkGqYI"],
@@ -64,7 +66,7 @@ const MOCK_LISTINGS: Listing[] = [
   {
     id: "mock-3", title: "1-кімнатна квартира", price: 12500, currency: "UAH", price_uah: 12500,
     rooms: 1, district: "Приморський р-н", city: "Одеса", area_sqm: 45,
-    property_type: "apartment", residential_complex: null, listing_type: "owner",
+    property_type: "apartment", residential_complex: null, listing_type: "owner", owner_verified: true,
     commission: null, commission_verified: false, probability_of_owner: 88,
     created_at: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
     photos: ["https://lh3.googleusercontent.com/aida-public/AB6AXuA4znIIEOc6dgbv6BDVYvb4O0qN8VfdS65ySu4iS2HwoAp_jCJjkVP971n44KJrYH-dJ6ofqlb2fJH05qWtiUKPjIhLj5r-23JqzVcnrkfavKgPdUhVJod59_tb1wYcLZCzBwCdlw2Y98n9MwOXFnMPO53-mHHbkoIozXfBBpm_tyCYPndX5D3Aj08xhN9cFokFEYuzxVoZsW4XPIGoHuqSkJyRiOXNdzRI88oj99VnkT2Bk50Qx3K6"],
@@ -86,9 +88,13 @@ export async function getPopularListings(limit = 3): Promise<Listing[]> {
     .order("probability_of_owner", { ascending: false })
     .limit(limit);
 
-  if (error) console.error("[listings] Supabase:", error.message);
-  if (error || !data || data.length === 0) return MOCK_LISTINGS.slice(0, limit);
-  return data as unknown as Listing[];
+  // Помилка запиту — це НЕ привід показувати моки: користувач побачив би
+  // вигадані квартири як справжні. Краще порожньо й помилка в лог.
+  if (error) {
+    console.error("[listings] Supabase:", error.message);
+    return [];
+  }
+  return (data as unknown as Listing[]) ?? [];
 }
 
 // ─────────────────────────────────────────────
@@ -143,7 +149,7 @@ export async function getListings(
 
   if (error) {
     console.error("[listings] Supabase:", error.message);
-    return { listings: MOCK_LISTINGS, count: MOCK_LISTINGS.length };
+    return { listings: [], count: 0 };
   }
   return { listings: (data as unknown as Listing[]) ?? [], count: count ?? 0 };
 }

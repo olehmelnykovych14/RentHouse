@@ -305,7 +305,11 @@ def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
         "source": "dimria",
         "external_id": str(realty.get("realty_id")),
         "url": realty.get("absoluteUrl") or DETAIL_URL_TMPL.format(realty.get("realty_id")),
-        "title": (f"{rooms}-кімнатна квартира, {district}" if rooms else "Квартира") ,
+        # Район підставляємо лише коли він є: інакше в заголовок потрапляло
+        # літеральне «None» («1-кімнатна квартира, None»).
+        "title": ", ".join(
+            p for p in (f"{rooms}-кімнатна квартира" if rooms else "Квартира", district) if p
+        ),
         "raw_description": description,
         "clean_description": description,   # структуровано; AI-очистку можна додати пізніше
         "price": realty.get("price_total") or realty.get("price"),
@@ -328,6 +332,12 @@ def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
         "commission_verified": False,   # заявлене «0%» не перевірене
         "photos": photos,
         "probability_of_owner": probability,
+        # Прапорець уточнює саме заяву «це власник», тож ставиться лише коли
+        # підсумкова класифікація — owner. Джерело буває суперечливим: каже
+        # «від власника», але має agency_id; там перемагає класифікація,
+        # інакше в базі жив би «підтверджений власник» із типом agency.
+        # Відсутність ознак посередника (seller is None) підтвердженням не є.
+        "owner_verified": seller == "власник" and listing_type == "owner",
         "ai_reasoning": (
             f"DIM.RIA: {listing_type} "
             f"(мітка={seller or '—'}, комісія={fee if fee is not None else '—'}, "

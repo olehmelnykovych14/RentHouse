@@ -21,6 +21,7 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
   const photos = listing.photos ?? [];
   const isOwner = listing.listing_type === "owner";
   const isNoFeeAgency = listing.listing_type === "agency_no_fee";
+  const verified = listing.owner_verified === true;
   // Підписник: listings_public віддає original_url лише йому → це і є ознака доступу.
   const unlocked = !!listing.original_url;
   const floorText =
@@ -134,18 +135,32 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
                   <h3 className="font-headline-md text-headline-md text-on-background">
                     {isOwner ? "Власник" : "Агенція"}
                   </h3>
-                  <div className="bg-secondary/10 text-secondary px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-wider inline-flex items-center mt-1">
+                  <div
+                    className={`px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-wider inline-flex items-center mt-1 ${
+                      isOwner && !verified
+                        ? "bg-surface-container text-on-surface-variant"
+                        : "bg-secondary/10 text-secondary"
+                    }`}
+                  >
                     <span className="material-symbols-outlined text-[12px] mr-1">
-                      {isOwner ? "verified" : isNoFeeAgency ? "percent" : "info"}
+                      {isNoFeeAgency ? "percent" : isOwner ? (verified ? "verified" : "search") : "info"}
                     </span>
                     {/* Для агенції без комісії AI-оцінка «наскільки це власник»
                         нічого не пояснює — важлива саме відсутність комісії. */}
-                    {isOwner
-                      ? "Перевірений власник"
-                      : isNoFeeAgency
-                        ? "Без комісії"
+                    {isNoFeeAgency
+                      ? "Без комісії"
+                      : isOwner
+                        ? verified
+                          ? "Перевірений власник"
+                          : "Ознак посередника не виявлено"
                         : `AI-оцінка ${listing.probability_of_owner ?? "?"}%`}
                   </div>
+                  {isOwner && !verified && (
+                    <p className="text-body-sm font-body-sm text-on-surface-variant mt-2 max-w-xs">
+                      Джерело не вказало, хто подав оголошення. Ми не знайшли ознак
+                      посередника, але це не те саме, що підтверджене власництво.
+                    </p>
+                  )}
                 </div>
               </div>
 
