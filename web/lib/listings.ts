@@ -30,6 +30,13 @@ export type Listing = {
   source?: string | null;
 };
 
+/**
+ * Що взагалі потрапляє в каталог. Звичайні агенції (`agency`) не показуємо —
+ * обіцянка продукту саме в тому, що їх тут немає. `agency_no_fee` показуємо,
+ * але карточка позначає їх як агенцію з 0% комісії, а не як власника.
+ */
+const CATALOG_TYPES = ["owner", "agency_no_fee"];
+
 const SELECT_COLS =
   "id,title,price,currency,price_uah,rooms,district,city,area_sqm,property_type,residential_complex,listing_type,commission,commission_verified,probability_of_owner,photos,created_at";
 
@@ -75,7 +82,7 @@ export async function getPopularListings(limit = 3): Promise<Listing[]> {
   const { data, error } = await supabase
     .from("listings_public")
     .select(SELECT_COLS)
-    .eq("listing_type", "owner")
+    .in("listing_type", CATALOG_TYPES)
     .order("probability_of_owner", { ascending: false })
     .limit(limit);
 
@@ -112,7 +119,7 @@ export async function getListings(
   let query = supabase
     .from("listings_public")
     .select(SELECT_COLS, { count: "exact" })
-    .eq("listing_type", "owner");
+    .in("listing_type", CATALOG_TYPES);
 
   const num = (v?: string) => (v && !Number.isNaN(Number(v)) ? Number(v) : undefined);
 

@@ -57,17 +57,19 @@ def to_uah(price, currency):
 
 # 5. Сід-список каналів (fallback). Основне джерело — таблиця channel_sources у Supabase;
 #    цей список використовується лише якщо БД недоступна або порожня.
+# Тільки орендні канали. Канали продажу сюди не додаємо: post_type відсіює
+# продаж і на рівні поста, але гнати тисячі оголошень про продаж через AI —
+# це витрачені гроші й ризик, що щось прослизне.
+# Свідомо ВИКЛЮЧЕНІ (продаж): nerukhomist_prodazh_lviv, prodaglvivkvarturu.
 SEED_CHANNELS = [
-    'orendakvarturlviv', 
+    'orendakvarturlviv',
     'lviv_neruhomist',
-    'nerukhomist_prodazh_lviv',
     'orendakvartyr_ua',
     'neruhomist_lviv_ua',
     'Orenda_Lviv_U',
     'lvivska_neruhomist',
     'direct_rent',
     'lvivnerucho',
-    'prodaglvivkvarturu'
 ]
 
 # --- [ІНІЦІАЛІЗАЦІЯ] ---
@@ -84,6 +86,16 @@ LISTING_JSON_SCHEMA = {
     "schema": {
         "type": "object",
         "properties": {
+            "post_type": {
+                "type": "string",
+                "enum": ["rent_offer", "sale", "wanted", "spam", "other"],
+                "description": (
+                    "Тип поста. rent_offer — ПРОПОЗИЦІЯ здати житло в оренду (здам, здається, "
+                    "оренда). sale — продаж житла чи ділянки (продам, продаж). wanted — ЗАПИТ, "
+                    "людина сама ШУКАЄ житло або хоче купити (шукаю, шукаємо, куплю, зніму). "
+                    "spam — реклама, боти, добірки посилань, не конкретне житло. other — решта."
+                ),
+            },
             "probability_of_owner": {"type": "integer", "description": "0-100"},
             "reasoning": {"type": "string", "description": "Стисле пояснення до 150 слів"},
             "price": {"type": ["number", "null"]},
@@ -114,7 +126,7 @@ LISTING_JSON_SCHEMA = {
             },
         },
         "required": [
-            "probability_of_owner", "reasoning", "price", "currency",
+            "post_type", "probability_of_owner", "reasoning", "price", "currency",
             "rooms", "city", "district", "has_furniture", "area_sqm", "floor",
             "total_floors", "property_type", "residential_complex", "commission", "clean_description",
         ],
@@ -123,6 +135,7 @@ LISTING_JSON_SCHEMA = {
 }
 
 DEFAULT_EXTRACTION = {
+    "post_type": "other",
     "probability_of_owner": 0,
     "reasoning": "Не вдалось отримати оцінку AI",
     "price": None,
@@ -243,7 +256,11 @@ def discover_channels_from_text(text: str) -> None:
 def ai_check(text: str) -> dict:
     """Аналізує пост через AI: ймовірність власника + структуровані дані оголошення."""
     system_prompt = (
-        "Ти — детектор посередників на ринку нерухомості України. Визнач, чи цей пост "
+        "СПОЧАТКУ визнач post_type. Канали оренди повні постів, які НЕ є пропозиціями "
+        "здати житло: продаж квартир і ділянок (sale), запити «шукаю/зніму/куплю» від "
+        "тих, хто сам шукає житло (wanted), реклама ботів і добірки посилань (spam). "
+        "Тільки rent_offer потрапляє в каталог. "
+        "Далі — детектор посередників на ринку нерухомості України. Визнач, чи цей пост "
         "написаний реальним власником квартири, чи замаскованим рієлтором/агентством. "
         "Знижуй бал за: професійний жаргон, списки з емодзі, фрази 'відео в приват', "
         "'комісія 0%', 'ан', 'агенство нерухомості', 'агенція', 'код обєкту'. "
@@ -309,8 +326,38 @@ async def collect_photos(event, messages, external_id: str) -> list[str]:
     return public_urls
 
 
+# Місячна оренда в гривнях. Нижня межа відсіює «ціна за добу» й помилки парсингу,
+# верхня — оголошення про ПРОДАЖ, які прослизнули повз post_type (мільйони гривень).
+RENT_UAH_MIN = 1_500
+RENT_UAH_MAX = 300_000
+
+
+def reject_reason(extraction: dict) -> str | None:
+    """
+    Чому пост НЕ можна класти в каталог. None — можна.
+
+    Канали оренди містять не лише пропозиції: продаж, запити «шукаю житло»,
+    рекламу ботів. Без цієї перевірки все це потрапляло в каталог як оренда.
+    """
+    post_type = extraction.get("post_type", "other")
+    if post_type != "rent_offer":
+        return f"post_type={post_type}"
+
+    price_uah = to_uah(extraction.get("price"), extraction.get("currency"))
+    if price_uah is None:
+        return "немає ціни"
+    if not (RENT_UAH_MIN <= price_uah <= RENT_UAH_MAX):
+        return f"ціна поза межами оренди: {price_uah} грн"
+    return None
+
+
 def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw_text: str, photos: list[str], city: str | None = None) -> None:
     if supabase is None:
+        return
+
+    reason = reject_reason(extraction)
+    if reason:
+        print(f"⏭️ Пропущено ({reason})")
         return
 
     listing_type, commission_val = classify(extraction)

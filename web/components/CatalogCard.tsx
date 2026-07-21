@@ -5,6 +5,7 @@ import FavoriteButton from "./FavoriteButton";
 
 export default function CatalogCard({ listing, favorited = false }: { listing: Listing; favorited?: boolean }) {
   const locked = isLocked(listing); // subscribed=false, поки нема auth
+  const isNoFeeAgency = listing.listing_type === "agency_no_fee";
   const photo = listing.photos?.[0];
   const location = [listing.city, listing.district].filter(Boolean).join(", ");
   const tags: string[] = [];
@@ -24,14 +25,21 @@ export default function CatalogCard({ listing, favorited = false }: { listing: L
           />
         )}
 
-        {/* AI-оцінка власника (зліва) */}
-        <div className="absolute top-2 left-2 z-10 bg-primary text-on-primary px-2 py-1 rounded font-caption text-caption flex items-center gap-1 shadow-sm">
-          🤖 AI-Оцінка: {listing.probability_of_owner ?? "?"}% Власник
-        </div>
+        {/* AI-оцінка показується лише там, де вона щось означає: для агенції
+            без комісії питання «чи це власник» не стоїть — це не власник. */}
+        {!isNoFeeAgency && (
+          <div className="absolute top-2 left-2 z-10 bg-primary text-on-primary px-2 py-1 rounded font-caption text-caption flex items-center gap-1 shadow-sm">
+            🤖 AI-Оцінка: {listing.probability_of_owner ?? "?"}% Власник
+          </div>
+        )}
 
-        {/* Значок «власник» (справа) */}
+        {/* Мітка типу. Агенцію без комісії НЕ називаємо власником —
+            користувач має бачити, з ким матиме справу. */}
         <div className="absolute top-2 right-2 z-10 bg-secondary/10 text-secondary-container backdrop-blur-sm px-2 py-1 rounded font-caption text-caption flex items-center gap-1 border border-secondary/20">
-          <span className="material-symbols-outlined text-[14px]">verified</span> Власник
+          <span className="material-symbols-outlined text-[14px]">
+            {isNoFeeAgency ? "percent" : "verified"}
+          </span>
+          {isNoFeeAgency ? "Агенція • 0% комісії" : "Власник"}
         </div>
 
         {/* Обране */}

@@ -20,6 +20,7 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
 
   const photos = listing.photos ?? [];
   const isOwner = listing.listing_type === "owner";
+  const isNoFeeAgency = listing.listing_type === "agency_no_fee";
   // Підписник: listings_public віддає original_url лише йому → це і є ознака доступу.
   const unlocked = !!listing.original_url;
   const floorText =
@@ -135,9 +136,15 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
                   </h3>
                   <div className="bg-secondary/10 text-secondary px-2 py-1 rounded text-[10px] font-semibold uppercase tracking-wider inline-flex items-center mt-1">
                     <span className="material-symbols-outlined text-[12px] mr-1">
-                      {isOwner ? "verified" : "info"}
+                      {isOwner ? "verified" : isNoFeeAgency ? "percent" : "info"}
                     </span>
-                    {isOwner ? "Перевірений власник" : `AI-оцінка ${listing.probability_of_owner ?? "?"}%`}
+                    {/* Для агенції без комісії AI-оцінка «наскільки це власник»
+                        нічого не пояснює — важлива саме відсутність комісії. */}
+                    {isOwner
+                      ? "Перевірений власник"
+                      : isNoFeeAgency
+                        ? "Без комісії"
+                        : `AI-оцінка ${listing.probability_of_owner ?? "?"}%`}
                   </div>
                 </div>
               </div>

@@ -310,8 +310,11 @@ def fetch_ad_details(session: requests.Session, ad_url: str) -> dict | None:
     )
     seller_name = seller_tag.get_text(strip=True) if seller_tag else ""
 
-    # Кількість оголошень автора
+    # Кількість оголошень автора (None = на сторінці немає)
     other_ads_count = _extract_seller_ads_count(soup)
+
+    # Пряма мітка OLX: бізнес-акаунт чи приватна особа
+    is_business = parse_is_business(resp.text)
 
     # Фото оголошення (сирі URL з CDN OLX)
     photo_urls = _extract_photo_urls(soup)
@@ -330,6 +333,7 @@ def fetch_ad_details(session: requests.Session, ad_url: str) -> dict | None:
         "description": description,
         "seller_name": seller_name,
         "seller_ads_count": other_ads_count,
+        "is_business": is_business,
         "reg_date": reg_date,
         "photo_urls": photo_urls,
     }
@@ -366,20 +370,37 @@ def _extract_photo_urls(soup: BeautifulSoup) -> list[str]:
     return urls[:MAX_PHOTOS]
 
 
-def _extract_seller_ads_count(soup: BeautifulSoup) -> int:
-    """Витягує кількість активних оголошень продавця."""
-    patterns = [
-        r"(\d+)\s*оголошень",
-        r"(\d+)\s*оголош",
-        r"Усі оголошення.*?(\d+)",
-        r"(\d+)\s*активн",
-    ]
+def _extract_seller_ads_count(soup: BeautifulSoup) -> int | None:
+    """
+    Кількість активних оголошень продавця, або None якщо її на сторінці немає.
+
+    ВАЖЛИВО: None ≠ 0. Раніше функція повертала 0 при невдачі, і через це
+    `0 > MAX_ACTIVE_LISTINGS` ніколи не спрацьовувало — бан за кількістю
+    оголошень мовчки пропускав усіх, а в промпт AI йшло «активних оголошень: 0»,
+    що робило будь-якого ріелтора схожим на власника з єдиним оголошенням.
+    Сторінка оголошення зазвичай числа НЕ містить (лише лінк «Усі оголошення автора»).
+    """
     text = soup.get_text(" ")
-    for pat in patterns:
+    for pat in (r"(\d+)\s*оголошен", r"(\d+)\s*активн"):
         m = re.search(pat, text, re.IGNORECASE)
         if m:
             return int(m.group(1))
-    return 0
+    return None
+
+
+# OLX сам позначає, чи акаунт бізнесовий. Це пряма заява джерела — надійніша
+# за будь-яке вгадування по тексту (те саме, що charId 1437 у dom.ria).
+_IS_BUSINESS_RE = re.compile(r'\\?"isBusiness\\?"\s*:\s*(true|false)')
+
+
+def parse_is_business(html: str) -> bool | None:
+    """True — бізнес-акаунт, False — приватна особа, None — сигналу немає."""
+    m = _IS_BUSINESS_RE.search(html or "")
+    if m:
+        return m.group(1) == "true"
+    if "Приватна особа" in (html or ""):
+        return False
+    return None
 
 
 # ─────────────────────────────────────────────
@@ -394,8 +415,13 @@ def level1_technical_ban(ad: dict) -> tuple[bool, str]:
         if substr.lower() in name_lower:
             return True, f"Назва профілю містить '{substr}'"
 
-    if ad["seller_ads_count"] > MAX_ACTIVE_LISTINGS:
-        return True, f"Забагато оголошень: {ad['seller_ads_count']} > {MAX_ACTIVE_LISTINGS}"
+    # Пряма мітка OLX має пріоритет над усіма здогадами.
+    if ad.get("is_business") is True:
+        return True, "OLX позначив акаунт як бізнес"
+
+    count = ad.get("seller_ads_count")
+    if count is not None and count > MAX_ACTIVE_LISTINGS:
+        return True, f"Забагато оголошень: {count} > {MAX_ACTIVE_LISTINGS}"
 
     return False, ""
 
@@ -530,10 +556,18 @@ def level3_ai_analysis(ad: dict) -> dict:
 назву ЖК (якщо є), КОМІСІЮ посередника як вона вказана в тексті ('0%', 'без комісії', '50%', або null
 якщо не згадано), і перепиши опис без рекламних штампів та закликів звертатись (clean_description)."""
 
+    # «невідомо» замість 0: підставляти 0 при невідомій кількості означало
+    # підказувати моделі, що продавець має єдине оголошення (ознака власника).
+    count = ad.get("seller_ads_count")
+    ads_line = str(count) if count is not None else "невідомо"
+    business = ad.get("is_business")
+    business_line = {True: "бізнес-акаунт", False: "приватна особа"}.get(business, "невідомо")
+
     user_content = f"""Оголошення:
 НАЗВА: {ad['title']}
 ПРОДАВЕЦЬ: {ad['seller_name']}
-АКТИВНИХ ОГОЛОШЕНЬ: {ad['seller_ads_count']}
+ТИП АКАУНТУ ЗА ДАНИМИ OLX: {business_line}
+АКТИВНИХ ОГОЛОШЕНЬ: {ads_line}
 РЕЄСТРАЦІЯ: {ad['reg_date']}
 
 ОПИС:

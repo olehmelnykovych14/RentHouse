@@ -228,6 +228,29 @@ def parse_commission(realty: dict) -> int | None:
     return None
 
 
+def parse_seller_type(realty: dict) -> str | None:
+    """
+    Хто подав оголошення, зі слів самого dom.ria (charId 1437:
+    «Пропозиція від посередника» / «Пропозиція від власника»).
+
+    Це НАЙНАДІЙНІШИЙ сигнал — пряма заява джерела, а не здогад по тексту.
+    Посередники часто лишають agency_id порожнім і не вказують комісію,
+    але цю характеристику dom.ria проставляє сама.
+
+    Повертає 'посередник' | 'власник' | None (якщо поля нема).
+    """
+    for c in (realty.get("mainCharacteristics") or {}).get("chars", []):
+        v = c.get("value")
+        s = (" ".join(v) if isinstance(v, list) else str(v)).lower()
+        if "пропозиція від" not in s and "предложение от" not in s:
+            continue
+        if "посередник" in s or "посредник" in s:
+            return "посередник"
+        if "власник" in s or "собственник" in s:
+            return "власник"
+    return None
+
+
 def parse_uah_price(realty: dict) -> int | None:
     """Точна ціна в гривнях із priceObj dom.ria (напр. '40 545' → 40545)."""
     raw = str((realty.get("priceObj") or {}).get("priceUAH", "")).replace(" ", "").replace(" ", "")
@@ -240,21 +263,31 @@ def parse_uah_price(realty: dict) -> int | None:
 def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
     """Мапить структурований об'єкт dom.ria у рядок таблиці listings."""
     description = realty.get("description_uk") or realty.get("description") or ""
-    # Власник ↔ агенція: немає agency_id І немає ріелторської лексики в описі.
-    # Комісія — найнадійніший сигнал: dom.ria зберігає її структуровано.
-    # Є комісія > 0 → посередник бере гроші (навіть якщо agency_id порожній).
-    # Поля нема → посередника нема → власник (за відсутності інших ознак).
+
+    # Порядок сигналів — від найнадійнішого до найслабшого:
+    #  1) пряма мітка dom.ria «Пропозиція від посередника/власника» (charId 1437);
+    #  2) структурована комісія (charId 2014);
+    #  3) agency_id;
+    #  4) ріелторська лексика в описі.
+    # Мітка джерела має пріоритет: посередники часто лишають agency_id порожнім
+    # і не заповнюють комісію, тож без п.1 вони протікали у 'owner'.
+    seller = parse_seller_type(realty)
     fee = parse_commission(realty)
     has_agency = bool(realty.get("agency_id")) or looks_like_realtor(description)
+    is_middleman = seller == "посередник" or has_agency or (fee is not None and fee > 0)
 
-    if fee is not None and fee > 0:
-        listing_type, probability, commission = "agency", 15, f"{fee}%"
-    elif fee == 0 or claims_no_fee(description):
-        listing_type, probability, commission = "agency_no_fee", 30, "0%"
-    elif has_agency:
-        listing_type, probability, commission = "agency", 15, None
-    else:
+    if is_middleman:
+        if fee == 0 or (fee is None and claims_no_fee(description)):
+            listing_type, probability, commission = "agency_no_fee", 30, "0%"
+        else:
+            listing_type, probability, commission = "agency", 15, (f"{fee}%" if fee else None)
+    elif seller == "власник":
+        # Джерело прямо каже «від власника», зустрічних ознак нема.
         listing_type, probability, commission = "owner", 90, None
+    else:
+        # Мітки нема взагалі — власник лише за відсутності ознак посередника,
+        # але впевненість нижча, бо це висновок від протилежного.
+        listing_type, probability, commission = "owner", 70, None
 
     rooms = realty.get("rooms_count")
     district = realty.get("district_name_uk") or realty.get("district_name")
@@ -286,7 +319,11 @@ def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
         "commission_verified": False,   # заявлене «0%» не перевірене
         "photos": photos,
         "probability_of_owner": probability,
-        "ai_reasoning": f"DIM.RIA: {listing_type} (agency_id={realty.get('agency_id')})",
+        "ai_reasoning": (
+            f"DIM.RIA: {listing_type} "
+            f"(мітка={seller or '—'}, комісія={fee if fee is not None else '—'}, "
+            f"agency_id={realty.get('agency_id') or '—'})"
+        ),
         "seller_name": "",
     }
 

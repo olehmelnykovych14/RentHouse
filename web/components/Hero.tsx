@@ -1,3 +1,5 @@
+import CityInput from "./CityInput";
+
 export default function Hero() {
   return (
     <section className="relative min-h-[600px] md:min-h-[760px] flex flex-col items-center justify-center px-margin-mobile md:px-margin-desktop py-24 bg-surface-container-low overflow-hidden">
@@ -26,13 +28,7 @@ export default function Hero() {
           className="mt-8 bg-surface-container-lowest p-2 rounded-full shadow-level-3 flex flex-col md:flex-row items-center justify-between border border-outline-variant max-w-4xl mx-auto gap-2 md:gap-0"
         >
           <div className="flex items-center px-4 py-2 w-full md:w-auto flex-1 border-b md:border-b-0 md:border-r border-outline-variant/30">
-            <span className="material-symbols-outlined text-outline mr-2">location_on</span>
-            <input
-              name="q"
-              className="w-full bg-transparent border-none focus:ring-0 text-body-md font-body-md placeholder-outline p-0"
-              placeholder="Місто, район"
-              type="text"
-            />
+            <CityInput name="q" />
           </div>
           <div className="flex items-center px-4 py-2 w-full md:w-auto flex-1 border-b md:border-b-0 md:border-r border-outline-variant/30">
             <span className="material-symbols-outlined text-outline mr-2">payments</span>
