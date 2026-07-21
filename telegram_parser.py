@@ -89,6 +89,10 @@ LISTING_JSON_SCHEMA = {
             "price": {"type": ["number", "null"]},
             "currency": {"type": ["string", "null"], "enum": ["UAH", "USD", "EUR", None]},
             "rooms": {"type": ["integer", "null"]},
+            "city": {
+                "type": ["string", "null"],
+                "description": "Місто у називному відмінку (Київ, Львів, Одеса…), якщо згадане або зрозуміле з тексту",
+            },
             "district": {"type": ["string", "null"], "description": "Район міста, якщо згадується в тексті"},
             "has_furniture": {"type": ["boolean", "null"]},
             "area_sqm": {"type": ["number", "null"], "description": "Площа в м², якщо вказана"},
@@ -111,7 +115,7 @@ LISTING_JSON_SCHEMA = {
         },
         "required": [
             "probability_of_owner", "reasoning", "price", "currency",
-            "rooms", "district", "has_furniture", "area_sqm", "floor",
+            "rooms", "city", "district", "has_furniture", "area_sqm", "floor",
             "total_floors", "property_type", "residential_complex", "commission", "clean_description",
         ],
         "additionalProperties": False,
@@ -124,6 +128,7 @@ DEFAULT_EXTRACTION = {
     "price": None,
     "currency": None,
     "rooms": None,
+    "city": None,
     "district": None,
     "has_furniture": None,
     "area_sqm": None,
@@ -242,7 +247,8 @@ def ai_check(text: str) -> dict:
         "написаний реальним власником квартири, чи замаскованим рієлтором/агентством. "
         "Знижуй бал за: професійний жаргон, списки з емодзі, фрази 'відео в приват', "
         "'комісія 0%', 'ан', 'агенство нерухомості', 'агенція', 'код обєкту'. "
-        "Також витягни ціну, валюту, кількість кімнат, район міста (якщо згаданий), "
+        "Також витягни МІСТО (називний відмінок: Київ, Львів, Одеса — якщо згадане чи "
+        "зрозуміле з контексту), ціну, валюту, кількість кімнат, район міста (якщо згаданий), "
         "чи є меблі, площу в м², поверх, поверховість будинку, тип житла "
         "(apartment/house/room/studio), назву ЖК (якщо є), КОМІСІЮ посередника як у тексті "
         "('0%', 'без комісії', '50%', або null якщо не згадано), і перепиши опис без "
@@ -321,7 +327,8 @@ def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw
         "price_uah": to_uah(extraction.get("price"), extraction.get("currency")),
         "rooms": extraction.get("rooms"),
         "district": extraction.get("district"),
-        "city": city or CITY,
+        # Пріоритет: місто з тексту оголошення → місто каналу → запасне.
+        "city": extraction.get("city") or city or CITY,
         "has_furniture": extraction.get("has_furniture"),
         "area_sqm": extraction.get("area_sqm"),
         "floor": extraction.get("floor"),
