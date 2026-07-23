@@ -6,22 +6,37 @@ export default function Hero() {
     // якій треба виходити за нижню межу Hero. Його завдання — тримати
     // масштабоване фонове зображення, тож він живе на обгортці фону.
     <section className="relative min-h-[600px] md:min-h-[760px] flex flex-col items-center justify-center px-margin-mobile md:px-margin-desktop py-24 bg-surface-container-low">
-      {/* Фонове зображення (плейсхолдер) */}
+      {/* Фон. Раніше картинка йшла з opacity-30 під темний текст — на світлій
+          кімнаті контрасту не лишалось узагалі. Макет вирішує це інакше:
+          повноцінне фото, темний градієнт поверх, білий текст. Так читабельність
+          не залежить від того, світле фото чи темне.
+          blur-[2px] — прохання зробити фон спокійнішим; scale-110 ховає
+          прозорі краї, які дає розмиття. */}
       <div className="absolute inset-0 z-0 overflow-hidden">
         <div
-          className="bg-cover bg-center w-full h-full opacity-30 motion-safe:animate-[fade-in_1.2s_ease-out_both] scale-105"
+          className="bg-cover bg-center w-full h-full scale-110 blur-[2px] motion-safe:animate-[fade-in_1.2s_ease-out_both]"
           style={{
             backgroundImage:
               "url('https://lh3.googleusercontent.com/aida-public/AB6AXuC0rHEpmNtb9CrUzujzqg80W-X3oE9GO6981aLk4Bt0Fgcv5UzD3b89kNHcohwUFY14IsfN9wMO2wvk5yryQkryLdYbUSfkO6FR7epM2QZULkG3aXnGTVa0i7jhcVJ8rIGQUZmj6qCxeW4h9pGWOmviYOryzwAHCQ3g6q0k3tPkWzTjjkQ8i3x5dnTSNJuge2T0aLYUK9CxIkqjNMVtKKstb_qOVw8VtnVPMybz0qNcwqvTqhT3oNBI')",
           }}
         />
+        {/* Затемнення: густіше в центрі, де лежить заголовок. */}
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              "linear-gradient(180deg, rgba(15,23,42,0.52) 0%, rgba(15,23,42,0.66) 45%, rgba(15,23,42,0.60) 100%)",
+          }}
+        />
       </div>
 
       <div className="relative z-10 text-center max-w-3xl mx-auto space-y-8 motion-safe:animate-fade-up">
-        <h1 className="font-display-lg text-headline-lg-mobile md:text-display-lg text-on-surface">
+        <h1 className="font-display-lg text-headline-lg-mobile md:text-display-lg text-white [text-shadow:0_2px_16px_rgba(15,23,42,0.35)]">
           Знайдіть ідеальну квартиру прямо від власника
         </h1>
-        <p className="font-body-lg text-body-lg text-on-surface-variant max-w-2xl mx-auto">
+        {/* Не white/90: на 18px прозорість опускала контраст до 4.1 — нижче
+            порогу AA 4.5 для звичайного тексту. */}
+        <p className="font-body-lg text-body-lg text-white max-w-2xl mx-auto">
           Без комісій агентам. Прозорі умови. Прямий контакт.
         </p>
 
