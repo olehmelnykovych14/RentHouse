@@ -49,7 +49,7 @@ export default function LeaseSetupModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-[100] bg-on-surface/40 backdrop-blur-sm flex items-center justify-center p-4 motion-safe:animate-fade-in"
       onClick={() => dismissible && onClose()}
       role="dialog"
       aria-modal="true"
@@ -57,7 +57,7 @@ export default function LeaseSetupModal({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-md p-6 max-h-[90vh] overflow-y-auto"
+        className="bg-surface-container-lowest rounded-2xl shadow-level-3 w-full max-w-md p-6 max-h-[90vh] overflow-y-auto motion-safe:animate-scale-in"
       >
         <div className="flex items-start justify-between gap-4 mb-1">
           <h2
@@ -150,7 +150,7 @@ export default function LeaseSetupModal({
           <button
             type="submit"
             disabled={busy}
-            className="w-full bg-primary text-on-primary font-label-md text-label-md py-3 rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="w-full bg-brand-blue text-on-primary font-label-md text-label-md py-3 rounded-lg hover:brightness-110 active:scale-[0.98] transition-[filter,transform] duration-200 disabled:opacity-50"
           >
             {busy ? "Збереження…" : "Зберегти оренду"}
           </button>

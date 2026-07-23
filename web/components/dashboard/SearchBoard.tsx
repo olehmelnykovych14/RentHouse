@@ -165,7 +165,7 @@ function Card({
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className="bg-surface-container-lowest border border-outline-variant/40 rounded-lg overflow-hidden shadow-sm hover:shadow-level-2 transition-shadow cursor-grab active:cursor-grabbing"
+      className="bg-surface-container-lowest border border-outline-variant/40 rounded-lg overflow-hidden shadow-sm hover:shadow-card-hover hover:-translate-y-0.5 transition-[transform,box-shadow] duration-250 ease-out-soft motion-safe:animate-fade-up cursor-grab active:cursor-grabbing active:rotate-1 active:scale-[0.98]"
     >
       {card.photo && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -205,14 +205,14 @@ function Card({
             }}
             rows={2}
             placeholder="Ваша нотатка…"
-            className="w-full mt-2 bg-tertiary-fixed/60 border border-tertiary-fixed-dim rounded p-2 font-body-sm text-body-sm text-on-tertiary-fixed resize-none focus:outline-none focus:border-tertiary-fixed-dim"
+            className="w-full mt-2 bg-surface-container-low border-l-[3px] border-brand-amber rounded-r-md p-2 font-body-sm text-body-sm text-on-surface resize-none focus:outline-none focus:bg-surface-container"
           />
         ) : (
           <button
             onClick={() => setEditing(true)}
-            className="w-full text-left mt-2 bg-tertiary-fixed/60 border border-tertiary-fixed/80 rounded p-2 font-body-sm text-body-sm text-on-tertiary-fixed hover:border-tertiary-fixed-dim transition-colors min-h-[38px]"
+            className="w-full text-left mt-2 bg-surface-container-low border-l-[3px] border-brand-amber rounded-r-md p-2 font-body-sm text-body-sm text-on-surface-variant hover:bg-surface-container transition-colors duration-200 min-h-[38px]"
           >
-            {saving ? "Збереження…" : note || <span className="text-on-tertiary-fixed-variant">+ Нотатка</span>}
+            {saving ? "Збереження…" : note || <span className="text-outline">+ Нотатка</span>}
           </button>
         )}
 

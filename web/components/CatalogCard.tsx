@@ -3,7 +3,16 @@ import { type Listing, isLocked } from "@/lib/listings";
 import { formatPrice } from "@/lib/format";
 import FavoriteButton from "./FavoriteButton";
 
-export default function CatalogCard({ listing, favorited = false }: { listing: Listing; favorited?: boolean }) {
+export default function CatalogCard({
+  listing,
+  favorited = false,
+  index = 0,
+}: {
+  listing: Listing;
+  favorited?: boolean;
+  /** Порядок у сітці — щоб картки з'являлись каскадом, а не всі разом. */
+  index?: number;
+}) {
   const locked = isLocked(listing); // subscribed=false, поки нема auth
   const isNoFeeAgency = listing.listing_type === "agency_no_fee";
   // «Перевірений» — лише там, де джерело прямо назвало продавця власником.
@@ -17,14 +26,19 @@ export default function CatalogCard({ listing, favorited = false }: { listing: L
   if (listing.residential_complex) tags.push(listing.residential_complex);
 
   return (
-    <div className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden hover:shadow-level-2 transition-shadow group flex flex-col">
-      <div className="relative h-48 w-full bg-surface-container">
+    <div
+      className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden hover:shadow-card-hover hover:-translate-y-1 transition-[transform,box-shadow] duration-300 ease-out-soft motion-safe:animate-fade-up group flex flex-col"
+      // Каскад обмежуємо 8 картками: далі затримка почала б відчуватись
+      // як гальмування, а не як анімація.
+      style={{ animationDelay: `${Math.min(index, 8) * 55}ms` }}
+    >
+      <div className="relative h-48 w-full bg-surface-container overflow-hidden">
         {photo && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={photo}
             alt={listing.title ?? "Квартира"}
-            className={`w-full h-full object-cover ${locked ? "blur-md scale-105" : ""}`}
+            className="w-full h-full object-cover transition-transform duration-500 ease-out-soft group-hover:scale-105"
           />
         )}
 
@@ -32,19 +46,12 @@ export default function CatalogCard({ listing, favorited = false }: { listing: L
             одна про одну й накладались, щойно текст ставав довшим. flex-wrap —
             запобіжник на вузьких картках. */}
         <div className="absolute top-2 left-2 right-2 z-10 flex flex-wrap items-start justify-between gap-1.5">
-          {/* Для агенції без комісії питання «чи це власник» не стоїть. */}
-          {!isNoFeeAgency && (
-            <div className="bg-primary text-on-primary px-2 py-1 rounded font-caption text-caption flex items-center gap-1 shadow-sm shrink-0">
-              🤖 AI: {listing.probability_of_owner ?? "?"}% власник
-            </div>
-          )}
-
           {/* Агенцію без комісії НЕ називаємо власником, а висновок від
               відсутності ознак — не називаємо перевіркою. */}
           <div
-            className={`ml-auto backdrop-blur-sm px-2 py-1 rounded font-caption text-caption flex items-center gap-1 border shrink-0 ${
+            className={`backdrop-blur-sm px-2 py-1 rounded font-caption text-caption flex items-center gap-1 border shrink-0 ${
               verified
-                ? "bg-secondary/10 text-secondary-container border-secondary/20"
+                ? "bg-secondary-fixed text-on-secondary-fixed border-secondary-fixed-dim"
                 : "bg-surface-container-lowest/85 text-on-surface-variant border-outline-variant/40"
             }`}
             title={
@@ -62,22 +69,21 @@ export default function CatalogCard({ listing, favorited = false }: { listing: L
                 ? "Перевірений власник"
                 : "Без ознак посередника"}
           </div>
+
+          {/* Для агенції без комісії питання «чи це власник» не стоїть. */}
+          {!isNoFeeAgency && (
+            <div className="ml-auto bg-brand-blue text-on-primary px-2 py-1 rounded font-caption text-caption flex items-center gap-1 shadow-sm shrink-0">
+              🤖 AI: {listing.probability_of_owner ?? "?"}% власник
+            </div>
+          )}
         </div>
 
         {/* Обране */}
         <FavoriteButton
           listingId={listing.id}
           initial={favorited}
-          className="absolute bottom-2 right-2 z-20 w-9 h-9 rounded-full bg-surface-container-lowest/90 backdrop-blur-sm flex items-center justify-center shadow-sm"
+          className="absolute bottom-2 right-2 z-20 w-9 h-9 rounded-full bg-surface-container-lowest/90 backdrop-blur-sm flex items-center justify-center shadow-sm transition-transform duration-200 ease-spring hover:scale-110 active:scale-95"
         />
-
-        {/* Замок paywall для свіжих оголошень */}
-        {locked && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-on-surface/40 text-on-primary p-4 text-center">
-            <span className="material-symbols-outlined text-[32px] mb-1">lock</span>
-            <span className="font-label-md text-label-md">Ексклюзивно для Premium на 24 години</span>
-          </div>
-        )}
       </div>
 
       <div className="p-4 flex-grow flex flex-col">
@@ -85,7 +91,7 @@ export default function CatalogCard({ listing, favorited = false }: { listing: L
           <h3 className="font-headline-md text-headline-lg-mobile text-on-surface line-clamp-1">
             {listing.title ?? "Квартира"}
           </h3>
-          <div className="font-display-lg text-[20px] text-primary whitespace-nowrap">
+          <div className="font-display-lg text-[20px] text-brand-blue whitespace-nowrap">
             {formatPrice(listing.price, listing.currency)}
           </div>
         </div>
@@ -103,19 +109,23 @@ export default function CatalogCard({ listing, favorited = false }: { listing: L
           ))}
         </div>
 
+        {/* Платним лишається КОНТАКТ, а не оголошення: фото, ціна й адреса
+            видні всім. Раніше замилена картка ховала саме те, що продає
+            квартиру, і виглядала як помилка завантаження. */}
         {locked ? (
           <Link
             href="/pricing"
-            className="block text-center w-full bg-secondary text-on-secondary font-label-md text-label-md py-2.5 rounded-lg hover:opacity-90 transition-opacity"
+            className="flex items-center justify-center gap-2 text-center w-full bg-surface-container text-primary border border-outline-variant font-label-md text-label-md py-2.5 rounded-lg hover:bg-surface-container-high transition-colors duration-200"
           >
-            🔓 Відкрити контакти
+            <span className="material-symbols-outlined text-[18px]">lock</span>
+            Розблокувати контакт
           </Link>
         ) : (
           <Link
             href={`/listings/${listing.id}`}
-            className="block text-center w-full bg-primary/5 text-primary border border-primary/20 font-label-md text-label-md py-2.5 rounded-lg hover:bg-primary hover:text-on-primary transition-colors"
+            className="block text-center w-full bg-brand-teal text-on-secondary font-label-md text-label-md py-2.5 rounded-lg hover:brightness-110 active:scale-[0.98] transition-[filter,transform] duration-200"
           >
-            Детальніше
+            Зв&apos;язатися з власником
           </Link>
         )}
       </div>

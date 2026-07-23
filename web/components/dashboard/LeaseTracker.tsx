@@ -245,7 +245,7 @@ export default function LeaseTracker({
 
               <div className="h-2 bg-surface-container rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${
+                  className={`h-full rounded-full transition-[width] duration-700 ease-out-soft ${
                     countdown.totalDays <= 60 ? "bg-error" : "bg-secondary"
                   }`}
                   style={{ width: `${Math.round(countdown.elapsedRatio * 100)}%` }}
@@ -402,7 +402,7 @@ function AddBillButton({
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
           <form
             action={submit}
-            className="absolute right-0 top-full mt-2 z-20 w-72 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-level-3 p-4 space-y-3"
+            className="absolute right-0 top-full mt-2 z-20 w-72 bg-surface-container-lowest border border-outline-variant rounded-xl shadow-level-3 p-4 space-y-3 motion-safe:animate-slide-down"
           >
             <label className="block">
               <span className="block font-label-sm text-label-sm text-on-surface-variant mb-1.5">

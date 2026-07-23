@@ -57,8 +57,8 @@ export default async function ListingsPage({ searchParams }: { searchParams: Sea
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-gutter">
-              {listings.map((l) => (
-                <CatalogCard key={l.id} listing={l} favorited={favIds.has(l.id)} />
+              {listings.map((l, i) => (
+                <CatalogCard key={l.id} listing={l} favorited={favIds.has(l.id)} index={i} />
               ))}
             </div>
           )}

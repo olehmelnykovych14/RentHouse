@@ -3,7 +3,7 @@ import { createSupabaseServer } from "@/lib/supabase/server";
 
 const LINKS = [
   { label: "Огляд", href: "/" },
-  { label: "Каталог", href: "/listings" },
+  { label: "Оголошення", href: "/listings" },
   { label: "Обране", href: "/favorites" },
   { label: "Мій кабінет", href: "/dashboard" },
   { label: "Тарифи", href: "/pricing" },
@@ -37,7 +37,7 @@ export default async function Navbar() {
             <Link
               key={l.label}
               href={l.href}
-              className="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors"
+              className="font-label-md text-label-md text-on-surface-variant hover:text-brand-blue transition-colors duration-200 relative after:absolute after:left-0 after:-bottom-1 after:h-0.5 after:w-0 after:bg-brand-blue after:transition-[width] after:duration-300 after:ease-out-soft hover:after:w-full"
             >
               {l.label}
             </Link>
@@ -58,7 +58,7 @@ export default async function Navbar() {
               <form action="/auth/signout" method="post">
                 <button
                   type="submit"
-                  className="font-label-md text-label-md text-on-surface-variant hover:text-primary transition-colors"
+                  className="font-label-md text-label-md text-on-surface-variant hover:text-brand-blue transition-colors duration-200 relative after:absolute after:left-0 after:-bottom-1 after:h-0.5 after:w-0 after:bg-brand-blue after:transition-[width] after:duration-300 after:ease-out-soft hover:after:w-full"
                 >
                   Вийти
                 </button>
@@ -76,7 +76,7 @@ export default async function Navbar() {
             href="/register"
             className="bg-primary text-on-primary font-label-md text-label-md px-4 py-2 rounded-lg active:scale-95 transition-transform"
           >
-            Додати оголошення
+            + Опублікувати оголошення
           </Link>
         </div>
       </div>

@@ -82,7 +82,7 @@ export default function CityInput({
         <ul
           id="city-options"
           role="listbox"
-          className="absolute left-0 top-full mt-3 z-50 w-[280px] max-h-72 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-2xl shadow-level-3 py-2"
+          className="absolute left-0 top-full mt-3 z-50 w-[280px] max-h-72 overflow-y-auto bg-surface-container-lowest border border-outline-variant rounded-2xl shadow-level-3 py-2 motion-safe:animate-slide-down"
         >
           {options.map((city, i) => (
             <li key={city.name}>

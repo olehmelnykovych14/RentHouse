@@ -8,6 +8,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Бренд-кольори з прототипу handoff. У DESIGN.md таблиця токенів і
+        // текст розходяться: таблиця дає primary #00236f, а текст і всі
+        // макети малюють #1E3A8A / #0D9488. Веду за макетами — README
+        // просить відтворити саме їх, — але шкалу токенів не чіпаю.
+        "brand-blue": "#1E3A8A",
+        "brand-teal": "#0D9488",
+        "brand-amber": "#F59E0B",
+
         "surface-container-lowest": "#ffffff",
         primary: "#00236f",
         surface: "#f7f9fb",
@@ -95,6 +103,54 @@ const config: Config = {
       boxShadow: {
         "level-2": "0px 4px 20px rgba(30, 58, 138, 0.05)",
         "level-3": "0px 10px 30px rgba(0, 0, 0, 0.1)",
+        // Наведення на картку: тінь із синім підтоном, як велить DESIGN.md
+        // («blue tint keeps the depth integrated with the brand»).
+        "card-hover": "0px 12px 32px rgba(30, 58, 138, 0.14)",
+      },
+
+      // Криві руху. Спокійний вихід для появи, легкий «перестріл» для
+      // елементів, що виїжджають — щоб рух не був механічним.
+      transitionTimingFunction: {
+        "out-soft": "cubic-bezier(0.22, 1, 0.36, 1)",
+        spring: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+      },
+
+      keyframes: {
+        "fade-up": {
+          from: { opacity: "0", transform: "translateY(12px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "fade-in": {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
+        "scale-in": {
+          from: { opacity: "0", transform: "scale(0.96) translateY(8px)" },
+          to: { opacity: "1", transform: "scale(1) translateY(0)" },
+        },
+        "slide-down": {
+          from: { opacity: "0", transform: "translateY(-8px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        // Пульс для лічильника днів до платежу.
+        "pulse-ring": {
+          "0%": { transform: "scale(1)", opacity: "0.5" },
+          "70%": { transform: "scale(1.25)", opacity: "0" },
+          "100%": { transform: "scale(1.25)", opacity: "0" },
+        },
+        shimmer: {
+          from: { backgroundPosition: "-200% 0" },
+          to: { backgroundPosition: "200% 0" },
+        },
+      },
+
+      animation: {
+        "fade-up": "fade-up 0.45s cubic-bezier(0.22, 1, 0.36, 1) both",
+        "fade-in": "fade-in 0.3s ease-out both",
+        "scale-in": "scale-in 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both",
+        "slide-down": "slide-down 0.2s cubic-bezier(0.22, 1, 0.36, 1) both",
+        "pulse-ring": "pulse-ring 2.4s cubic-bezier(0.22, 1, 0.36, 1) infinite",
+        shimmer: "shimmer 1.6s linear infinite",
       },
     },
   },
