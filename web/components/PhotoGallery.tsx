@@ -33,22 +33,39 @@ export default function PhotoGallery({ photos, title }: { photos: string[]; titl
 
   if (photos.length === 0) return null;
 
+  const thumbs = photos.slice(1, 5);
+
+  // Розкладка на кожну кількість фото окремо. Сітка була жорстко на 4 колонки
+  // з головним фото на двох із них, тож будь-яка кількість, крім п'яти,
+  // лишала порожні клітинки — при одному фото зяяла половина блока.
+  // На мобільному мініатюри сховані (hidden md:block), тому там завжди
+  // одна колонка, а справжня розкладка вмикається з md.
+  // Класи виписані повністю: Tailwind не бачить згенеровані рядки.
+  const LAYOUTS = [
+    { grid: "grid-cols-1", main: "col-span-full row-span-full" },                        // тільки головне
+    { grid: "grid-cols-1 md:grid-cols-2", main: "col-span-full md:col-span-1" },         // + 1
+    { grid: "grid-cols-1 md:grid-cols-2 md:grid-rows-2", main: "col-span-full md:row-span-2" },   // + 2
+    { grid: "grid-cols-1 md:grid-cols-3 md:grid-rows-3", main: "col-span-full md:col-span-3 md:row-span-2" }, // + 3
+    { grid: "grid-cols-1 md:grid-cols-4 md:grid-rows-2", main: "col-span-full md:col-span-2 md:row-span-2" }, // + 4
+  ];
+  const { grid: gridClass, main: mainClass } = LAYOUTS[thumbs.length];
+
   return (
     <>
       {/* Bento grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-base mb-12 h-[300px] md:h-[440px] rounded-xl overflow-hidden">
+      <div className={`grid ${gridClass} gap-base mb-12 h-[300px] md:h-[440px] rounded-xl overflow-hidden`}>
         <button
           onClick={() => setIndex(0)}
-          className="col-span-2 md:row-span-2 relative bg-surface-container-low overflow-hidden group text-left"
+          className={`${mainClass} relative bg-surface-container-low overflow-hidden group text-left`}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={photos[0]} alt={title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
           <span className="absolute bottom-3 right-3 bg-surface-container-lowest/90 text-on-surface font-caption text-caption px-3 py-1.5 rounded-lg flex items-center gap-1">
             <span className="material-symbols-outlined text-[18px]">photo_library</span>
-            Всі фото ({photos.length})
+            {photos.length > 1 ? `Всі фото (${photos.length})` : "Відкрити фото"}
           </span>
         </button>
-        {photos.slice(1, 5).map((p, i, arr) => (
+        {thumbs.map((p, i, arr) => (
           <button
             key={i}
             onClick={() => setIndex(i + 1)}

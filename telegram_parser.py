@@ -7,6 +7,8 @@ from openai import OpenAI
 from supabase import create_client
 import requests
 
+import owner_detection
+
 try:
     import config
 except ImportError:
@@ -86,16 +88,8 @@ LISTING_JSON_SCHEMA = {
     "schema": {
         "type": "object",
         "properties": {
-            "post_type": {
-                "type": "string",
-                "enum": ["rent_offer", "sale", "wanted", "spam", "other"],
-                "description": (
-                    "Тип поста. rent_offer — ПРОПОЗИЦІЯ здати житло в оренду (здам, здається, "
-                    "оренда). sale — продаж житла чи ділянки (продам, продаж). wanted — ЗАПИТ, "
-                    "людина сама ШУКАЄ житло або хоче купити (шукаю, шукаємо, куплю, зніму). "
-                    "spam — реклама, боти, добірки посилань, не конкретне житло. other — решта."
-                ),
-            },
+            **owner_detection.POST_TYPE_PROPERTY,
+            **owner_detection.SIGNAL_PROPERTIES,
             "probability_of_owner": {"type": "integer", "description": "0-100"},
             "reasoning": {"type": "string", "description": "Стисле пояснення до 150 слів"},
             "price": {"type": ["number", "null"]},
@@ -126,7 +120,8 @@ LISTING_JSON_SCHEMA = {
             },
         },
         "required": [
-            "post_type", "probability_of_owner", "reasoning", "price", "currency",
+            "post_type", "owner_signals", "realtor_signals",
+            "probability_of_owner", "reasoning", "price", "currency",
             "rooms", "city", "district", "has_furniture", "area_sqm", "floor",
             "total_floors", "property_type", "residential_complex", "commission", "clean_description",
         ],
@@ -136,6 +131,8 @@ LISTING_JSON_SCHEMA = {
 
 DEFAULT_EXTRACTION = {
     "post_type": "other",
+    "owner_signals": [],
+    "realtor_signals": [],
     "probability_of_owner": 0,
     "reasoning": "Не вдалось отримати оцінку AI",
     "price": None,
@@ -255,15 +252,7 @@ def discover_channels_from_text(text: str) -> None:
 
 def ai_check(text: str) -> dict:
     """Аналізує пост через AI: ймовірність власника + структуровані дані оголошення."""
-    system_prompt = (
-        "СПОЧАТКУ визнач post_type. Канали оренди повні постів, які НЕ є пропозиціями "
-        "здати житло: продаж квартир і ділянок (sale), запити «шукаю/зніму/куплю» від "
-        "тих, хто сам шукає житло (wanted), реклама ботів і добірки посилань (spam). "
-        "Тільки rent_offer потрапляє в каталог. "
-        "Далі — детектор посередників на ринку нерухомості України. Визнач, чи цей пост "
-        "написаний реальним власником квартири, чи замаскованим рієлтором/агентством. "
-        "Знижуй бал за: професійний жаргон, списки з емодзі, фрази 'відео в приват', "
-        "'комісія 0%', 'ан', 'агенство нерухомості', 'агенція', 'код обєкту'. "
+    system_prompt = owner_detection.build_system_prompt(
         "Також витягни МІСТО (називний відмінок: Київ, Львів, Одеса — якщо згадане чи "
         "зрозуміле з контексту), ціну, валюту, кількість кімнат, район міста (якщо згаданий), "
         "чи є меблі, площу в м², поверх, поверховість будинку, тип житла "
@@ -283,7 +272,8 @@ def ai_check(text: str) -> dict:
         )
         data = json.loads(response.choices[0].message.content)
         data["probability_of_owner"] = int(data.get("probability_of_owner", 0))
-        return data
+        # Докази мають пріоритет над числом, якщо вони суперечать одне одному.
+        return owner_detection.calibrate(data)
     except Exception as e:
         return {**DEFAULT_EXTRACTION, "reasoning": f"Помилка AI: {e}"}
 

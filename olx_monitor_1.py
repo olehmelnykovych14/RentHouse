@@ -18,6 +18,8 @@ from bs4 import BeautifulSoup
 from openai import OpenAI
 from supabase import create_client
 
+import owner_detection
+
 try:
     import config
 except ImportError:
@@ -448,7 +450,11 @@ LISTING_JSON_SCHEMA = {
     "strict": True,
     "schema": {
         "type": "object",
+        # Порядок полів = порядок генерації: спершу тип поста й цитати-докази,
+        # і лише потім число. Інакше модель ставила оцінку наосліп.
         "properties": {
+            **owner_detection.POST_TYPE_PROPERTY,
+            **owner_detection.SIGNAL_PROPERTIES,
             "probability_of_owner": {"type": "integer", "description": "0-100"},
             "reasoning": {"type": "string", "description": "Стисле пояснення до 150 слів"},
             "price": {"type": ["number", "null"]},
@@ -475,6 +481,7 @@ LISTING_JSON_SCHEMA = {
             },
         },
         "required": [
+            "post_type", "owner_signals", "realtor_signals",
             "probability_of_owner", "reasoning", "price", "currency",
             "rooms", "district", "has_furniture", "area_sqm", "floor",
             "total_floors", "property_type", "residential_complex", "commission", "clean_description",
@@ -484,7 +491,10 @@ LISTING_JSON_SCHEMA = {
 }
 
 DEFAULT_EXTRACTION = {
-    "probability_of_owner": 50,
+    "post_type": "other",       # збій AI не має відкривати шлях у каталог
+    "owner_signals": [],
+    "realtor_signals": [],
+    "probability_of_owner": 0,  # було 50 — «майже власник» на порожньому місці
     "reasoning": "Не вдалось отримати оцінку AI",
     "price": None,
     "currency": None,
@@ -534,27 +544,16 @@ def classify(extraction: dict) -> tuple[str, str | None]:
 def level3_ai_analysis(ad: dict) -> dict:
     """Повертає структурований словник з оцінкою власника та даними оголошення."""
 
-    system_prompt = """Ти — детектор посередників на ринку нерухомості України.
-Твоє завдання: визначити, чи є автор оголошення реальним власником квартири, чи замаскованим рієлтором/агентством,
-і витягнути структуровані дані з тексту оголошення.
-
-КРИТЕРІЇ ВЛАСНИКА (підвищують score):
-+ Побутові деталі: згадка сусідів, особистих спогадів, конкретних дрібниць ("балкон виходить на схід", "шафа залишається")
-+ Неформальний, трохи "незграбний" текст без глянцевих штампів
-+ Конкретна причина продажу ("переїжджаємо", "потрібні гроші на лікування")
-+ Один об'єкт, текст написаний від першої особи
-
-КРИТЕРІЇ РІЄЛТОРА (знижують score):
-- Рекламні штампи: "ідеальний варіант", "бізнес-клас", "продумано до дрібниць", "розвинута інфраструктура"
-- Надмірно структурований/шаблонний опис
-- Фраза "є ще варіанти" або посилання на інші об'єкти
-- Акцент на "чистоті угоди", юридичному супроводі
-- Запрошення на огляд у конкретний офіс
-
-Також витягни: ціну (число), валюту, кількість кімнат, район міста (якщо згаданий),
+    system_prompt = owner_detection.build_system_prompt(
+        """Також витягни: ціну (число), валюту, кількість кімнат, район міста (якщо згаданий),
 чи є меблі, площу в м², поверх, поверховість будинку, тип житла (apartment/house/room/studio),
 назву ЖК (якщо є), КОМІСІЮ посередника як вона вказана в тексті ('0%', 'без комісії', '50%', або null
-якщо не згадано), і перепиши опис без рекламних штампів та закликів звертатись (clean_description)."""
+якщо не згадано), і перепиши опис без рекламних штампів та закликів звертатись (clean_description).
+
+ТИП АКАУНТУ ЗА ДАНИМИ OLX — це заява самого майданчика, а не здогад. Якщо там
+«бізнес-акаунт», це realtor_signal незалежно від тексту. «Приватна особа» НЕ є
+доказом власності: посередники масово працюють з приватних акаунтів."""
+    )
 
     # «невідомо» замість 0: підставляти 0 при невідомій кількості означало
     # підказувати моделі, що продавець має єдине оголошення (ознака власника).
@@ -585,7 +584,8 @@ def level3_ai_analysis(ad: dict) -> dict:
         )
         data = json.loads(response.choices[0].message.content)
         data["probability_of_owner"] = int(data.get("probability_of_owner", 0))
-        return data
+        # Докази мають пріоритет над числом, якщо вони суперечать одне одному.
+        return owner_detection.calibrate(data)
     except json.JSONDecodeError as e:
         log.warning(f"AI повернув невалідний JSON: {e}")
         return dict(DEFAULT_EXTRACTION)
@@ -626,8 +626,30 @@ def upload_photos_to_storage(session: requests.Session, photo_urls: list[str], a
     return public_urls
 
 
+# Місячна оренда в гривнях. Нижня межа відсіює ціну за добу й помилки парсингу,
+# верхня — оголошення про продаж, які прослизнули повз post_type.
+RENT_UAH_MIN = 1_500
+RENT_UAH_MAX = 300_000
+
+
+def reject_reason(extraction: dict) -> str | None:
+    """Чому оголошення не можна класти в каталог. None — можна."""
+    post_type = extraction.get("post_type", "other")
+    if post_type != "rent_offer":
+        return f"post_type={post_type}"
+    price_uah = to_uah(extraction.get("price"), extraction.get("currency"))
+    if price_uah is not None and not (RENT_UAH_MIN <= price_uah <= RENT_UAH_MAX):
+        return f"ціна поза межами оренди: {price_uah} грн"
+    return None
+
+
 def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str, photos: list[str], city: str | None = None) -> None:
     if supabase is None:
+        return
+
+    reason = reject_reason(extraction)
+    if reason:
+        log.info(f"  ⏭️ Пропущено ({reason})")
         return
 
     listing_type, commission = classify(extraction)
