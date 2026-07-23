@@ -5,6 +5,7 @@ const LINKS = [
   { label: "Огляд", href: "/" },
   { label: "Каталог", href: "/listings" },
   { label: "Обране", href: "/favorites" },
+  { label: "Мій кабінет", href: "/dashboard" },
   { label: "Тарифи", href: "/pricing" },
 ];
 
