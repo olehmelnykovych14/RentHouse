@@ -4,17 +4,19 @@ import { useState } from "react";
 import SearchBoard, { type BoardCard } from "./SearchBoard";
 import LeaseTracker, { type UtilityBill } from "./LeaseTracker";
 import LeaseSetupModal from "./LeaseSetupModal";
-import type { Lease } from "@/lib/lease";
+import type { Lease, RentPayment } from "@/lib/lease";
 
 type Tab = "search" | "apartment";
 
 export default function DashboardTabs({
   cards,
   lease,
+  payments,
   bills,
 }: {
   cards: BoardCard[];
   lease: Lease | null;
+  payments: RentPayment[];
   bills: UtilityBill[];
 }) {
   // Якщо оренда вже є — відкриваємо саме її: це головний екран для того,
@@ -55,7 +57,7 @@ export default function DashboardTabs({
       {tab === "search" ? (
         <SearchBoard cards={cards} />
       ) : lease ? (
-        <LeaseTracker lease={lease} bills={bills} />
+        <LeaseTracker lease={lease} payments={payments} bills={bills} />
       ) : (
         <div className="bg-surface-container-lowest border border-outline-variant/40 rounded-xl p-12 text-center">
           <span className="material-symbols-outlined text-[40px] text-outline">key</span>

@@ -13,7 +13,14 @@ export type Lease = {
   payment_day: number;
   lease_start_date: string;
   lease_end_date: string;
-  last_paid_on: string | null;
+};
+
+export type RentPayment = {
+  id: string;
+  /** Дата платежу, яку закривають ці гроші (не день натискання кнопки). */
+  due_date: string;
+  amount: number;
+  paid_on: string;
 };
 
 /** Опівніч цієї дати — щоб порівнювати дні, а не моменти часу. */
@@ -56,17 +63,62 @@ export function daysUntilPayment(paymentDay: number, from: Date = new Date()): n
   return daysBetween(from, nextPaymentDate(paymentDay, from));
 }
 
+/** Дата у вигляді YYYY-MM-DD у локальному календарі (не UTC). */
+export function toISODate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+    d.getDate()
+  ).padStart(2, "0")}`;
+}
+
+/** Дата платежу за N місяців від заданої, з поправкою на короткі місяці. */
+function shiftMonths(paymentDay: number, base: Date, months: number): Date {
+  const y = base.getFullYear();
+  const m = base.getMonth() + months;
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  return new Date(y, m, Math.min(paymentDay, lastDay));
+}
+
 /**
- * Чи оплачено поточний період.
+ * Найближчий НЕОПЛАЧЕНИЙ платіж.
  *
- * Вважаємо оплаченим, якщо позначку поставлено після попередньої дати платежу:
- * тоді до наступної нічого не винні.
+ * Дозволяє платити наперед: коли поточний період закрито, показуємо наступний,
+ * а не ховаємо віджет. Обмежуємо 24 місяцями, щоб не крутити цикл вічно.
  */
-export function isCurrentPeriodPaid(lease: Lease, from: Date = new Date()): boolean {
-  if (!lease.last_paid_on) return false;
-  const next = nextPaymentDate(lease.payment_day, from);
-  const prev = new Date(next.getFullYear(), next.getMonth() - 1, next.getDate());
-  return parseDate(lease.last_paid_on) >= startOfDay(prev);
+export function nextUnpaidDueDate(
+  paymentDay: number,
+  paidDueDates: Set<string>,
+  from: Date = new Date()
+): Date {
+  const first = nextPaymentDate(paymentDay, from);
+  for (let i = 0; i < 24; i++) {
+    const candidate = shiftMonths(paymentDay, first, i);
+    if (!paidDueDates.has(toISODate(candidate))) return candidate;
+  }
+  return first;
+}
+
+/**
+ * Пропущені платежі: дати в минулому, за якими немає запису.
+ *
+ * Рахуємо від початку договору — інакше пропуск помічається лише тоді, коли
+ * про нього вже пізно згадувати.
+ */
+export function missedDueDates(
+  lease: Lease,
+  paidDueDates: Set<string>,
+  from: Date = new Date()
+): string[] {
+  const today = startOfDay(from);
+  const start = parseDate(lease.lease_start_date);
+  const missed: string[] = [];
+
+  let cursor = nextPaymentDate(lease.payment_day, start);
+  for (let i = 0; i < 240 && cursor < today; i++) {
+    const iso = toISODate(cursor);
+    if (!paidDueDates.has(iso)) missed.push(iso);
+    cursor = shiftMonths(lease.payment_day, cursor, 1);
+  }
+  return missed;
 }
 
 export type LeaseCountdown = {

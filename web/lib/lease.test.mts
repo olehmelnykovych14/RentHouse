@@ -6,7 +6,9 @@ import {
   nextPaymentDate,
   daysUntilPayment,
   leaseCountdown,
-  isCurrentPeriodPaid,
+  nextUnpaidDueDate,
+  missedDueDates,
+  toISODate,
   pluralDays,
   pluralMonths,
   type Lease,
@@ -57,7 +59,7 @@ check("платіж сьогодні → 0", daysUntilPayment(15, new Date(2026,
 // ── Строк договору ──────────────────────────────────────────────
 const lease = (start: string, end: string, extra: Partial<Lease> = {}): Lease => ({
   id: "x", property_address: "тест", rent_amount: 12000, payment_day: 15,
-  lease_start_date: start, lease_end_date: end, last_paid_on: null, ...extra,
+  lease_start_date: start, lease_end_date: end, ...extra,
 });
 
 const c1 = leaseCountdown(lease("2026-01-01", "2026-12-31"), new Date(2026, 6, 1));
@@ -70,15 +72,31 @@ check("прострочений договір", [c2.expired, c2.elapsedRatio], 
 const c3 = leaseCountdown(lease("2026-01-31", "2026-02-28"), new Date(2026, 0, 31));
 check("календарний місяць від 31 січня", [c3.months, c3.days], [0, 28]);
 
-// ── Позначка про оплату ─────────────────────────────────────────
-check("не оплачено, якщо позначки немає",
-  isCurrentPeriodPaid(lease("2026-01-01", "2026-12-31"), new Date(2026, 6, 3)), false);
+// ── Історія платежів ────────────────────────────────────────────
+const now = new Date(2026, 6, 3); // 3 липня 2026, платіж 15-го
 
-check("оплачено після минулого платежу",
-  isCurrentPeriodPaid(lease("2026-01-01", "2026-12-31", { last_paid_on: "2026-06-16" }), new Date(2026, 6, 3)), true);
+check("нічого не оплачено → найближчий платіж поточного місяця",
+  toISODate(nextUnpaidDueDate(15, new Set(), now)), "2026-07-15");
 
-check("стара позначка не рахується за поточний період",
-  isCurrentPeriodPaid(lease("2026-01-01", "2026-12-31", { last_paid_on: "2026-05-01" }), new Date(2026, 6, 3)), false);
+check("поточний оплачено → показуємо наступний",
+  toISODate(nextUnpaidDueDate(15, new Set(["2026-07-15"]), now)), "2026-08-15");
+
+check("оплата наперед на два місяці",
+  toISODate(nextUnpaidDueDate(15, new Set(["2026-07-15", "2026-08-15"]), now)), "2026-09-15");
+
+check("оплата наперед через короткий місяць (платіж 31-го)",
+  toISODate(nextUnpaidDueDate(31, new Set(["2026-07-31"]), now)), "2026-08-31");
+
+check("пропущені платежі від початку договору",
+  missedDueDates(lease("2026-01-01", "2026-12-31"), new Set(["2026-03-15", "2026-05-15"]), now),
+  ["2026-01-15", "2026-02-15", "2026-04-15", "2026-06-15"]);
+
+check("усе сплачено → пропусків немає",
+  missedDueDates(lease("2026-05-01", "2026-12-31"),
+    new Set(["2026-05-15", "2026-06-15"]), now), []);
+
+check("майбутні платежі не рахуються пропущеними",
+  missedDueDates(lease("2026-06-01", "2026-12-31"), new Set(["2026-06-15"]), now), []);
 
 // ── Українські форми множини ────────────────────────────────────
 check("1 день", pluralDays(1), "1 день");

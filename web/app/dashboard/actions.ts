@@ -106,24 +106,61 @@ export async function createLease(formData: FormData): Promise<Result> {
   return { ok: true };
 }
 
-export async function markRentPaid(leaseId: string): Promise<Result> {
+/**
+ * Записує оплату за конкретний період.
+ *
+ * dueDate приходить з клієнта, тож суму беремо з бази, а не з форми: інакше
+ * можна було б записати оплату на довільне число.
+ */
+export async function markRentPaid(leaseId: string, dueDate: string): Promise<Result> {
   const ctx = await client();
   if (!ctx) return { ok: false, error: "Потрібен вхід" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return { ok: false, error: "Некоректна дата платежу" };
 
-  // Дата в локальному календарі користувача: toISOString() дав би UTC і
-  // ввечері записав би завтрашній день.
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(
-    now.getDate()
-  ).padStart(2, "0")}`;
+  const { data: lease } = await ctx.supabase
+    .from("active_leases")
+    .select("rent_amount")
+    .eq("id", leaseId)
+    .eq("user_id", ctx.user.id)
+    .maybeSingle();
+
+  if (!lease) return { ok: false, error: "Оренду не знайдено" };
 
   const { error } = await ctx.supabase
-    .from("active_leases")
-    .update({ last_paid_on: today })
-    .eq("id", leaseId)
-    .eq("user_id", ctx.user.id);
+    .from("rent_payments")
+    .insert({ lease_id: leaseId, due_date: dueDate, amount: lease.rent_amount });
+
+  // 23505 — унікальний індекс (lease_id, due_date): період уже оплачено.
+  // Це не помилка користувача, а подвійне натискання.
+  if (error && error.code !== "23505") return { ok: false, error: error.message };
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/**
+ * Скасовує позначку про оплату за конкретний період.
+ *
+ * Видаляємо за (lease_id, due_date), а не за id рядка: щойно доданий платіж
+ * на екрані ще має тимчасовий id, і видалення за ним мовчки не спрацьовувало б —
+ * Postgres не вважає помилкою видалення того, чого немає.
+ */
+export async function undoRentPayment(leaseId: string, dueDate: string): Promise<Result> {
+  const ctx = await client();
+  if (!ctx) return { ok: false, error: "Потрібен вхід" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return { ok: false, error: "Некоректна дата платежу" };
+
+  // Належність перевіряє RLS через active_leases; select повертає видалені
+  // рядки, тож видно, чи справді щось зникло.
+  const { data, error } = await ctx.supabase
+    .from("rent_payments")
+    .delete()
+    .eq("lease_id", leaseId)
+    .eq("due_date", dueDate)
+    .select("id");
 
   if (error) return { ok: false, error: error.message };
+  if (!data || data.length === 0) return { ok: false, error: "Платіж не знайдено" };
+
   revalidatePath("/dashboard");
   return { ok: true };
 }
@@ -134,6 +171,7 @@ export async function addUtilityBill(leaseId: string, formData: FormData): Promi
 
   const title = String(formData.get("title") ?? "").trim();
   const amount = Number(formData.get("amount"));
+  const category = String(formData.get("category") ?? "").trim() || null;
   if (!title) return { ok: false, error: "Вкажіть назву" };
   if (!Number.isFinite(amount) || amount < 0) return { ok: false, error: "Некоректна сума" };
 
@@ -141,7 +179,7 @@ export async function addUtilityBill(leaseId: string, formData: FormData): Promi
   // тож підставити чужий lease_id не вийде.
   const { error } = await ctx.supabase
     .from("utility_logs")
-    .insert({ lease_id: leaseId, title, amount });
+    .insert({ lease_id: leaseId, title, amount, category });
 
   if (error) return { ok: false, error: error.message };
   revalidatePath("/dashboard");

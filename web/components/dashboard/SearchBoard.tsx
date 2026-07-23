@@ -27,6 +27,14 @@ const COLUMNS: { key: BoardColumn; label: string; accent: string }[] = [
 export default function SearchBoard({ cards }: { cards: BoardCard[] }) {
   // Локальна копія, щоб картка рухалась одразу, не чекаючи на сервер.
   const [items, setItems] = useState(cards);
+
+  // …але щойно сервер віддає свіжі дані, головні — вони. Без цього useState
+  // назавжди тримав би початковий знімок і розходився б з базою.
+  const [syncedWith, setSyncedWith] = useState(cards);
+  if (cards !== syncedWith) {
+    setSyncedWith(cards);
+    setItems(cards);
+  }
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<BoardColumn | null>(null);
   const [, startTransition] = useTransition();
