@@ -181,6 +181,46 @@ export async function getFavoriteIds(): Promise<Set<string>> {
   return new Set((data ?? []).map((r: { listing_id: string }) => r.listing_id));
 }
 
+/**
+ * Пул для стрічки свайпів: оголошення, яких ще НЕ в обраному.
+ * Спочатку найсвіжіші, з обмеженням — картки все одно гортають по одній.
+ */
+export async function getSwipeListings(limit = 40): Promise<Listing[]> {
+  const supabase = createSupabaseServer();
+  if (!supabase) return MOCK_LISTINGS;
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let excludeIds: string[] = [];
+  if (user) {
+    const { data: favs } = await supabase
+      .from("favorites")
+      .select("listing_id")
+      .eq("user_id", user.id);
+    excludeIds = (favs ?? []).map((r: { listing_id: string }) => r.listing_id);
+  }
+
+  let query = supabase
+    .from("listings_public")
+    .select(SELECT_COLS)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (excludeIds.length) {
+    // Postgrest очікує список у дужках: (id1,id2,…)
+    query = query.not("id", "in", `(${excludeIds.join(",")})`);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    console.error("[swipe] Supabase:", error.message);
+    return [];
+  }
+  return (data as unknown as Listing[]) ?? [];
+}
+
 /** Оголошення, які користувач додав в обране (для сторінки /favorites). */
 export async function getFavoriteListings(): Promise<Listing[]> {
   const supabase = createSupabaseServer();
