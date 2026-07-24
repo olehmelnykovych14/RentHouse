@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { createSupabaseServer } from "@/lib/supabase/server";
 
+// «Гортати» тут немає навмисно: свайп — мобільний спосіб перегляду, а це
+// меню видно лише на десктопі (hidden md:flex). Вхід у стрічку — з каталогу.
 const LINKS = [
   { label: "Огляд", href: "/" },
   { label: "Оголошення", href: "/listings" },
   { label: "Обране", href: "/favorites" },
-  { label: "Гортати", href: "/swipe" },
   { label: "Мій кабінет", href: "/dashboard" },
   { label: "Тарифи", href: "/pricing" },
 ];

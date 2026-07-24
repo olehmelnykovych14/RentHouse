@@ -1,3 +1,4 @@
+import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import FilterSidebar from "@/components/FilterSidebar";
@@ -42,11 +43,17 @@ export default async function ListingsPage({ searchParams }: { searchParams: Sea
             </div>
             <div className="flex bg-surface-container-low rounded-lg p-1 border border-outline-variant/20">
               <button className="px-3 py-1 rounded bg-surface-container-lowest text-primary shadow-sm flex items-center gap-1 font-label-md text-label-md">
-                <span className="material-symbols-outlined text-[20px]">list</span> Список
+                <span className="material-symbols-outlined text-[20px]">list</span>
+                <span className="hidden sm:inline">Список</span>
               </button>
-              <button className="px-3 py-1 rounded text-on-surface-variant hover:text-on-surface flex items-center gap-1 font-label-md text-label-md transition-colors" title="Скоро">
-                <span className="material-symbols-outlined text-[20px]">map</span> Карта
-              </button>
+              <Link
+                href="/swipe"
+                className="px-3 py-1 rounded text-on-surface-variant hover:text-on-surface flex items-center gap-1 font-label-md text-label-md transition-colors"
+                title="Гортати картки, як у застосунку знайомств"
+              >
+                <span className="material-symbols-outlined text-[20px]">style</span>
+                <span className="hidden sm:inline">Гортати</span>
+              </Link>
             </div>
           </div>
 

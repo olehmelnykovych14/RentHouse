@@ -61,6 +61,20 @@ export default function SwipeDeck({ listings }: { listings: Listing[] }) {
   const top = deck[0];
   const next = deck[1];
 
+  // Активне фото верхньої картки. Свайп зайнятий рішенням, тож фото гортаємо
+  // тапом по половинах (як у застосунках знайомств); тап розпізнаємо в onUp.
+  const [photoIdx, setPhotoIdx] = useState(0);
+  useEffect(() => {
+    setPhotoIdx(0); // нова картка зверху — показуємо з першого фото
+  }, [top?.id]);
+
+  const topPhotos = top?.photos ?? [];
+
+  function stepPhoto(dir: 1 | -1) {
+    if (topPhotos.length < 2) return;
+    setPhotoIdx((i) => Math.min(topPhotos.length - 1, Math.max(0, i + dir)));
+  }
+
   function schedule() {
     if (raf.current != null) return;
     raf.current = requestAnimationFrame(() => {
@@ -89,22 +103,32 @@ export default function SwipeDeck({ listings }: { listings: Listing[] }) {
     schedule();
   }
 
-  function onUp() {
+  function onUp(e: React.PointerEvent) {
     if (!drag.current.active) return;
-    const { dx, t0 } = drag.current;
+    const { dx, dy, t0 } = drag.current;
     const dt = Math.max(1, performance.now() - t0);
     const velocity = Math.abs(dx) / dt;
     const decided = Math.abs(dx) > SWIPE_THRESHOLD || velocity > FLICK_VELOCITY;
 
     drag.current.active = false;
+
     if (decided) {
       commit(dx > 0 ? "like" : "nope");
-    } else {
-      // Не дотягнув — плавно назад.
-      drag.current.dx = 0;
-      drag.current.dy = 0;
-      setTick({ dx: 0, dy: 0, active: false });
+      return;
     }
+
+    // Майже без руху — це тап, а не свайп. Ліва третина картки гортає фото
+    // назад, решта — вперед (порядок як у Tinder/Instagram Stories).
+    if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const rel = (e.clientX - rect.left) / rect.width;
+      stepPhoto(rel < 0.33 ? -1 : 1);
+    }
+
+    // Не дотягнув — плавно назад.
+    drag.current.dx = 0;
+    drag.current.dy = 0;
+    setTick({ dx: 0, dy: 0, active: false });
   }
 
   function commit(decision: Decision) {
@@ -229,6 +253,7 @@ export default function SwipeDeck({ listings }: { listings: Listing[] }) {
         {/* Верхня — інтерактивна. */}
         <SwipeCard
           listing={top}
+          photoIndex={photoIdx}
           onPointerDown={onDown}
           onPointerMove={onMove}
           onPointerUp={onUp}
@@ -284,25 +309,40 @@ export default function SwipeDeck({ listings }: { listings: Listing[] }) {
       </div>
 
       <p className="text-center font-caption text-caption text-on-surface-variant mt-4">
-        Гортайте вправо — в обране, вліво — пропустити
+        Свайп вправо — в обране, вліво — пропустити. Тап по фото — наступне.
       </p>
     </div>
   );
 }
 
+// Пропси перелічені явно, а не через ...rest: спред довільних пропсів на
+// div протікав нестандартним атрибутом (photoIndex) у DOM. Явний список —
+// жоден зайвий атрибут не потрапить на елемент.
 function SwipeCard({
   listing,
+  photoIndex = 0,
   children,
   className = "",
   style,
-  ...handlers
+  onPointerDown,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
 }: {
   listing: Listing;
+  /** Індекс активного фото — керується зовні (тап по половинах картки). */
+  photoIndex?: number;
   children?: React.ReactNode;
   className?: string;
   style?: React.CSSProperties;
-} & React.HTMLAttributes<HTMLDivElement>) {
-  const photo = listing.photos?.[0];
+  onPointerDown?: (e: React.PointerEvent) => void;
+  onPointerMove?: (e: React.PointerEvent) => void;
+  onPointerUp?: (e: React.PointerEvent) => void;
+  onPointerCancel?: (e: React.PointerEvent) => void;
+}) {
+  const photos = listing.photos ?? [];
+  const idx = Math.min(photoIndex, Math.max(0, photos.length - 1));
+  const photo = photos[idx];
   const location = [listing.city, listing.district].filter(Boolean).join(", ");
   const verified = listing.owner_verified === true;
   const isNoFee = listing.listing_type === "agency_no_fee";
@@ -312,7 +352,10 @@ function SwipeCard({
 
   return (
     <div
-      {...handlers}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       style={style}
       className={`overflow-hidden rounded-3xl bg-surface-container-lowest border border-outline-variant/40 shadow-level-3 flex flex-col ${className}`}
     >
@@ -326,8 +369,31 @@ function SwipeCard({
           </div>
         )}
 
+        {/* Смужки-індикатори фото (Instagram Stories): скільки фото і яке
+            зараз. Показуємо лише коли фото більше одного. */}
+        {photos.length > 1 && (
+          <div className="absolute top-2 inset-x-3 z-20 flex gap-1 pointer-events-none">
+            {photos.map((_, i) => (
+              <span
+                key={i}
+                className={`h-1 flex-1 rounded-full transition-colors ${
+                  i === idx ? "bg-white" : "bg-white/35"
+                }`}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Підказка «ще фото» — з'являється лише поки фото не гортали. */}
+        {photos.length > 1 && idx === 0 && (
+          <span className="absolute top-5 right-3 z-10 bg-on-surface/50 text-white font-caption text-caption px-2 py-0.5 rounded-full flex items-center gap-1 pointer-events-none">
+            <span className="material-symbols-outlined text-[13px]">touch_app</span>
+            {photos.length} фото
+          </span>
+        )}
+
         {/* Мітка джерела продавця. */}
-        <div className="absolute top-3 left-3 z-10">
+        <div className={`absolute left-3 z-10 ${photos.length > 1 ? "top-7" : "top-3"}`}>
           <span
             className={`inline-flex items-center gap-1 backdrop-blur-sm px-2.5 py-1 rounded-full font-caption text-caption ${
               verified

@@ -9,6 +9,10 @@
 body {
   background-color: #f7f9fb;
   color: #191c1e;
+  /* Прибираємо горизонтальний overscroll: інакше свайп вправо тригерив
+     браузерну навігацію «назад», яка кидала pointercancel і відкидала
+     картку свайпу на місце замість того, щоб її зарахувати. */
+  overscroll-behavior-x: none;
 }
 
 /* Material Symbols base config (icons used across the design) */
