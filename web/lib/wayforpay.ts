@@ -3,10 +3,12 @@ import crypto from "crypto";
 export const WAYFORPAY_PAY_URL = "https://secure.wayforpay.com/pay";
 export const CURRENCY = "UAH";
 
-// SKU підписок. Спринт (7 днів) — основний за стратегією; місячний — другорядний.
+// SKU підписок — єдине джерело правди для цін: сторінка тарифів читає їх звідси,
+// тож показане й те, що спишеться, не розходяться. Спринт (7 днів) — «спробувати»,
+// місячний — основна підписка.
 export const PLANS: Record<string, { name: string; price: number; days: number }> = {
-  sprint: { name: "RentDirect Спринт (7 днів)", price: 149, days: 7 },
-  premium: { name: "RentDirect Преміум (місяць)", price: 299, days: 30 },
+  sprint: { name: "RentDirect Спринт (7 днів)", price: 49, days: 7 },
+  premium: { name: "RentDirect Преміум (місяць)", price: 99, days: 30 },
 };
 
 export function hmacMd5(secret: string, parts: (string | number)[]): string {

@@ -1,6 +1,7 @@
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import SubscribeButton from "@/components/SubscribeButton";
+import { PLANS } from "@/lib/wayforpay";
 
 export const metadata = { title: "Тарифи — RentDirect" };
 
@@ -16,6 +17,8 @@ type Tier = {
   plan?: string; // якщо задано — кнопка ініціює оплату цього тарифу
 };
 
+// Ціни беремо з PLANS (lib/wayforpay) — там єдине джерело, тож показане
+// збігається зі списанням.
 const TIERS: Tier[] = [
   {
     name: "Базовий",
@@ -31,8 +34,22 @@ const TIERS: Tier[] = [
     accent: "surface-variant",
   },
   {
+    name: "Спринт",
+    price: `₴${PLANS.sprint.price}`,
+    unit: "/7 днів",
+    blurb: "Спробувати повний доступ на тиждень — зручно, коли шукаєш житло активно.",
+    features: [
+      "Миттєвий доступ до контактів власників",
+      "Нові квартири без затримки 24 години",
+      "7 днів повного доступу",
+    ],
+    cta: "Обрати Спринт",
+    accent: "tertiary",
+    plan: "sprint",
+  },
+  {
     name: "Преміум",
-    price: "₴299",
+    price: `₴${PLANS.premium.price}`,
     unit: "/міс",
     blurb: "Миттєвий доступ до контактів усіх власників без затримок.",
     features: [
@@ -45,20 +62,6 @@ const TIERS: Tier[] = [
     featured: true,
     accent: "primary",
     plan: "premium",
-  },
-  {
-    name: "VIP (для власників)",
-    price: "₴999",
-    unit: "/обʼєкт",
-    blurb: "Для орендодавців: підняття у ТОП і персональні інструменти просування.",
-    features: [
-      "Підняття оголошень у ТОП списку щодня",
-      "Професійна фото- та відеозйомка обʼєкта (1 раз)",
-      "Виділення оголошення кольором у пошуку",
-      "Детальна аналітика переглядів",
-    ],
-    cta: "Для орендодавців",
-    accent: "tertiary",
   },
 ];
 
@@ -142,7 +145,8 @@ export default function PricingPage() {
         </div>
 
         <p className="font-caption text-caption text-on-surface-variant mt-12 text-center max-w-xl">
-          Оплата підключається наступним кроком (український еквайринг). Кнопки поки без checkout.
+          Оплата через WayForPay (український еквайринг). Підписку можна скасувати
+          будь-коли — доступ діятиме до кінця оплаченого періоду.
         </p>
       </main>
       <Footer />
