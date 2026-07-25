@@ -28,6 +28,23 @@ export default async function CabinetPage() {
     .eq("status", "active")
     .maybeSingle();
 
+  // Статистика — лише з реальних даних. Переглядів і повідомлень з макета не
+  // показуємо: ми їх не рахуємо, а вигадані числа гірші за їх відсутність.
+  const { data: favs } = await supabase
+    .from("favorites")
+    .select("status")
+    .eq("user_id", user.id);
+  const favList = favs ?? [];
+  const stats = {
+    saved: favList.length,
+    contacted: favList.filter((f) => f.status === "contacted").length,
+    viewings: favList.filter((f) => f.status === "viewings_scheduled").length,
+  };
+  const { count: leaseCount } = await supabase
+    .from("active_leases")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", user.id);
+
   const name = profile?.full_name || user.email || "Користувач";
   const initial = name.trim().charAt(0).toUpperCase() || "U";
   const roleLabel = profile?.role === "owner" ? "Власник" : "Орендар";
@@ -38,6 +55,35 @@ export default async function CabinetPage() {
       <Navbar />
       <main className="flex-grow pt-[104px] px-margin-mobile md:px-margin-desktop max-w-container-max mx-auto w-full pb-16">
         <h1 className="font-headline-lg text-headline-lg text-on-surface mb-8">Кабінет</h1>
+
+        {/* Статистика пошуку. Кожна картка веде в кабінет-дошку до потрібної
+            колонки — це не просто число, а вхід у роботу з ним. */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-gutter mb-gutter">
+          <StatCard
+            href="/favorites"
+            icon="favorite"
+            value={stats.saved}
+            label="Збережено квартир"
+          />
+          <StatCard
+            href="/dashboard"
+            icon="call"
+            value={stats.contacted}
+            label="Зв'язалися з власником"
+          />
+          <StatCard
+            href="/dashboard"
+            icon="event_available"
+            value={stats.viewings}
+            label="Заплановано переглядів"
+          />
+          <StatCard
+            href="/dashboard"
+            icon="home"
+            value={leaseCount ?? 0}
+            label="Активна оренда"
+          />
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-gutter">
           {/* Профіль */}
@@ -103,5 +149,32 @@ function Row({ label, value }: { label: string; value: string }) {
       <dt className="font-body-md text-body-md text-on-surface-variant">{label}</dt>
       <dd className="font-label-md text-label-md text-on-surface">{value}</dd>
     </div>
+  );
+}
+
+function StatCard({
+  href,
+  icon,
+  value,
+  label,
+}: {
+  href: string;
+  icon: string;
+  value: number;
+  label: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="bg-surface-container-lowest border border-surface-variant rounded-xl p-5 flex flex-col gap-2 hover:shadow-card-hover hover:-translate-y-0.5 transition-[transform,box-shadow] duration-200 ease-out-soft"
+    >
+      <span className="w-9 h-9 rounded-full bg-primary-fixed/40 text-primary flex items-center justify-center">
+        <span className="material-symbols-outlined text-[20px]">{icon}</span>
+      </span>
+      <span className="font-display-lg text-headline-lg text-on-surface leading-none">
+        {value}
+      </span>
+      <span className="font-caption text-caption text-on-surface-variant">{label}</span>
+    </Link>
   );
 }
