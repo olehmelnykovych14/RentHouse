@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import AlertSettings, { type AlertSub } from "@/components/AlertSettings";
+import MyListings, { type MyListing } from "@/components/MyListings";
 import { createSupabaseServer } from "@/lib/supabase/server";
 
 // Публічний юзернейм бота (не токен) — для deep-link прив'язки.
@@ -48,6 +49,15 @@ export default async function CabinetPage() {
     .from("active_leases")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id);
+
+  // Оголошення, які користувач сам розмістив (RLS повертає лише власні рядки,
+  // будь-якого статусу — на відміну від каталогу, який показує лише active).
+  const { data: myRows } = await supabase
+    .from("listings")
+    .select("id, title, city, district, price, currency, status, photos, created_at")
+    .eq("posted_by", user.id)
+    .order("created_at", { ascending: false });
+  const myListings = (myRows ?? []) as MyListing[];
 
   // Критерії Telegram-сповіщень. connected = бот уже прив'язав chat_id.
   const { data: alertRow } = await supabase
@@ -147,6 +157,9 @@ export default async function CabinetPage() {
             </div>
 
             <div className="bg-surface-container-lowest border border-surface-variant rounded-xl p-6 flex flex-col gap-3">
+              <Link href="/post" className="flex items-center gap-2 text-on-surface hover:text-primary transition-colors font-label-md text-label-md">
+                <span className="material-symbols-outlined">add_home</span> Розмістити оголошення
+              </Link>
               <Link href="/favorites" className="flex items-center gap-2 text-on-surface hover:text-primary transition-colors font-label-md text-label-md">
                 <span className="material-symbols-outlined">favorite</span> Обране
               </Link>
@@ -160,6 +173,10 @@ export default async function CabinetPage() {
               </form>
             </div>
           </aside>
+        </div>
+
+        <div className="mt-gutter">
+          <MyListings listings={myListings} />
         </div>
 
         <div className="mt-gutter max-w-xl">

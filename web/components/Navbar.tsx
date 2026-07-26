@@ -75,7 +75,7 @@ export default async function Navbar() {
             </Link>
           )}
           <Link
-            href="/register"
+            href="/post"
             className="bg-primary text-on-primary font-label-md text-label-md px-4 py-2 rounded-lg active:scale-95 transition-transform"
           >
             + Опублікувати оголошення
