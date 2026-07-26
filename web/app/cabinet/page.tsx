@@ -2,7 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import AlertSettings, { type AlertSub } from "@/components/AlertSettings";
 import { createSupabaseServer } from "@/lib/supabase/server";
+
+// Публічний юзернейм бота (не токен) — для deep-link прив'язки.
+const ALERT_BOT_USERNAME = "realtor_fast_poshuk_bot";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Кабінет — RentDirect" };
@@ -44,6 +48,26 @@ export default async function CabinetPage() {
     .from("active_leases")
     .select("id", { count: "exact", head: true })
     .eq("user_id", user.id);
+
+  // Критерії Telegram-сповіщень. connected = бот уже прив'язав chat_id.
+  const { data: alertRow } = await supabase
+    .from("alert_subscriptions")
+    .select("city, district, price_min, price_max, rooms, rooms_plus, active, link_token, telegram_chat_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const alertSub: AlertSub | null = alertRow
+    ? {
+        city: alertRow.city,
+        district: alertRow.district,
+        price_min: alertRow.price_min,
+        price_max: alertRow.price_max,
+        rooms: alertRow.rooms,
+        rooms_plus: alertRow.rooms_plus,
+        active: alertRow.active,
+        link_token: alertRow.link_token,
+        connected: alertRow.telegram_chat_id != null,
+      }
+    : null;
 
   const name = profile?.full_name || user.email || "Користувач";
   const initial = name.trim().charAt(0).toUpperCase() || "U";
@@ -136,6 +160,10 @@ export default async function CabinetPage() {
               </form>
             </div>
           </aside>
+        </div>
+
+        <div className="mt-gutter max-w-xl">
+          <AlertSettings sub={alertSub} botUsername={ALERT_BOT_USERNAME} />
         </div>
       </main>
       <Footer />
