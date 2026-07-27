@@ -1,14 +1,14 @@
 import Link from "next/link";
 import { createSupabaseServer } from "@/lib/supabase/server";
+import ProfileMenu from "./ProfileMenu";
 
-// «Гортати» тут немає навмисно: свайп — мобільний спосіб перегляду, а це
-// меню видно лише на десктопі (hidden md:flex). Вхід у стрічку — з каталогу.
+// Вгорі лишаємо тільки основний перегляд. Особисте (кабінет, перевірка
+// договору, профіль, вихід) переїхало у випадайку під аватаром — інакше
+// рядок переповнювався. Меню видно лише на десктопі (hidden md:flex).
 const LINKS = [
   { label: "Огляд", href: "/" },
   { label: "Оголошення", href: "/listings" },
-  { label: "Перевірка договору", href: "/contract-check" },
   { label: "Обране", href: "/favorites" },
-  { label: "Мій кабінет", href: "/dashboard" },
   { label: "Тарифи", href: "/pricing" },
 ];
 
@@ -49,24 +49,7 @@ export default async function Navbar() {
 
         <div className="flex gap-3 items-center">
           {user ? (
-            <>
-              <Link href="/cabinet" className="hidden md:flex items-center gap-2 max-w-[180px] group">
-                <div className="w-8 h-8 rounded-full bg-primary text-on-primary flex items-center justify-center font-label-md text-label-md shrink-0">
-                  {initial}
-                </div>
-                <span className="font-label-md text-label-md text-on-surface truncate group-hover:text-primary transition-colors">
-                  {displayName}
-                </span>
-              </Link>
-              <form action="/auth/signout" method="post">
-                <button
-                  type="submit"
-                  className="font-label-md text-label-md text-on-surface-variant hover:text-brand-blue transition-colors duration-200 relative after:absolute after:left-0 after:-bottom-1 after:h-0.5 after:w-0 after:bg-brand-blue after:transition-[width] after:duration-300 after:ease-out-soft hover:after:w-full"
-                >
-                  Вийти
-                </button>
-              </form>
-            </>
+            <ProfileMenu displayName={displayName} initial={initial} />
           ) : (
             <Link
               href="/login"
