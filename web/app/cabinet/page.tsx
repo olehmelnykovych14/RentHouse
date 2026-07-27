@@ -62,22 +62,50 @@ export default async function CabinetPage() {
   // Критерії Telegram-сповіщень. connected = бот уже прив'язав chat_id.
   const { data: alertRow } = await supabase
     .from("alert_subscriptions")
-    .select("city, district, price_min, price_max, rooms, rooms_plus, active, link_token, telegram_chat_id")
+    .select(
+      "city, districts, property_type, price_min, price_max, rooms, rooms_plus, instant, active, link_token, telegram_chat_id"
+    )
     .eq("user_id", user.id)
     .maybeSingle();
   const alertSub: AlertSub | null = alertRow
     ? {
         city: alertRow.city,
-        district: alertRow.district,
+        districts: alertRow.districts ?? [],
+        property_type: alertRow.property_type,
         price_min: alertRow.price_min,
         price_max: alertRow.price_max,
         rooms: alertRow.rooms,
         rooms_plus: alertRow.rooms_plus,
+        instant: alertRow.instant ?? false,
         active: alertRow.active,
         link_token: alertRow.link_token,
         connected: alertRow.telegram_chat_id != null,
       }
     : null;
+
+  // Preміум для миттєвої доставки — з наявної підписки, не з окремого прапорця.
+  const isPremium = Boolean(sub);
+
+  // Реальні райони по містах для дропдауна радара (щоб список завжди збігався
+  // з тим, що є в базі). Беремо лише каталожні активні оголошення.
+  const { data: distRows } = await supabase
+    .from("listings")
+    .select("city, district")
+    .eq("status", "active")
+    .not("district", "is", null)
+    .limit(2000);
+  const districtsByCity: Record<string, string[]> = {};
+  for (const r of distRows ?? []) {
+    const city = (r.city ?? "").trim();
+    const d = (r.district ?? "").trim();
+    if (!city || !d) continue;
+    (districtsByCity[city] ??= []).push(d);
+  }
+  for (const c of Object.keys(districtsByCity)) {
+    districtsByCity[c] = Array.from(new Set(districtsByCity[c])).sort((a, b) =>
+      a.localeCompare(b, "uk")
+    );
+  }
 
   const name = profile?.full_name || user.email || "Користувач";
   const initial = name.trim().charAt(0).toUpperCase() || "U";
@@ -183,7 +211,12 @@ export default async function CabinetPage() {
         </div>
 
         <div className="mt-gutter max-w-xl">
-          <AlertSettings sub={alertSub} botUsername={ALERT_BOT_USERNAME} />
+          <AlertSettings
+            sub={alertSub}
+            botUsername={ALERT_BOT_USERNAME}
+            districtsByCity={districtsByCity}
+            isPremium={isPremium}
+          />
         </div>
       </main>
       <Footer />

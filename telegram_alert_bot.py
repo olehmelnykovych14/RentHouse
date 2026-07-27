@@ -14,6 +14,7 @@
 """
 import html
 import time
+from datetime import datetime, timezone
 
 import requests
 
@@ -24,6 +25,36 @@ BOT_TOKEN = config.TELEGRAM_BOT_TOKEN
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 POLL_SECONDS = 30
 SEND_LIMIT_PER_SUB = 5  # за один прохід — щоб при першому підключенні не завалити
+DIGEST_INTERVAL_SEC = 24 * 3600  # free-каданс: дайджест не частіше ніж раз на добу
+DIGEST_MAX = 10                  # скільки квартир максимум в одному дайджесті
+
+
+def parse_ts(s: str):
+    """ISO-час із Supabase → aware datetime (None, якщо не парситься)."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def is_premium(user_id: str) -> bool:
+    """Активна підписка = миттєва доставка. Те саме, що is_subscriber() у БД."""
+    if not user_id:
+        return False
+    try:
+        rows = (
+            sb.table("subscriptions").select("current_period_end")
+            .eq("user_id", user_id).eq("status", "active").limit(1).execute().data
+        )
+    except Exception as e:
+        print(f"premium check error: {e}")
+        return False
+    if not rows:
+        return False
+    end = parse_ts(rows[0].get("current_period_end"))
+    return end is None or end > datetime.now(timezone.utc)
 
 sb = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY)
 
@@ -99,9 +130,16 @@ def poll_updates(offset: int) -> int:
 def matches(listing: dict, sub: dict) -> bool:
     if sub.get("city") and (listing.get("city") or "") != sub["city"]:
         return False
-    if sub.get("district"):
-        if sub["district"].lower() not in (listing.get("district") or "").lower():
+    # Райони: АБО-логіка. Підходить, якщо район оголошення містить будь-який
+    # з обраних. Порожній список = будь-який район.
+    districts = sub.get("districts") or []
+    if districts:
+        ld = (listing.get("district") or "").lower()
+        if not any((d or "").lower() in ld for d in districts):
             return False
+    ptype = sub.get("property_type")
+    if ptype and (listing.get("property_type") or "") != ptype:
+        return False
     price = listing.get("price_uah")
     if sub.get("price_min") is not None and (price is None or price < sub["price_min"]):
         return False
@@ -133,17 +171,46 @@ def format_listing(l: dict) -> str:
     return "\n".join(lines)
 
 
+def format_digest(hits: list[dict]) -> str:
+    """Один згорнутий лист для free-каданса замість пачки окремих."""
+    head = f"🔔 <b>Нові квартири за вашим радаром — {len(hits)}</b>"
+    lines = [head, ""]
+    for l in hits[:DIGEST_MAX]:
+        price = l.get("price_uah")
+        price_str = f"{price:,} ₴".replace(",", " ") if price else "ціна н/д"
+        loc = ", ".join(x for x in (l.get("city"), l.get("district")) if x)
+        title = html.escape((l.get("title") or "Квартира")[:70])
+        url = l.get("url") or ""
+        row = f"• <b>{price_str}</b> — {title}"
+        if loc:
+            row += f" ({html.escape(loc)})"
+        if url:
+            row += f"\n  {url}"
+        lines.append(row)
+    if len(hits) > DIGEST_MAX:
+        lines.append(f"\n…та ще {len(hits) - DIGEST_MAX}. Оформіть Premium для миттєвих сповіщень.")
+    return "\n".join(lines)
+
+
 def dispatch_new_listings() -> None:
     subs = (
         sb.table("alert_subscriptions").select("*")
         .eq("active", True).not_.is_("telegram_chat_id", "null").execute().data
     )
+    now = datetime.now(timezone.utc)
     for sub in subs:
+        # Миттєво — лише Premium із увімкненим instant. Решта — раз на добу.
+        instant_ok = bool(sub.get("instant")) and is_premium(sub.get("user_id"))
+        if not instant_ok:
+            last = parse_ts(sub.get("last_notified_at"))
+            if last and (now - last).total_seconds() < DIGEST_INTERVAL_SEC:
+                continue  # доба ще не минула — накопичуємо далі
+
         # Тільки те, що зʼявилось після останнього сповіщення цієї підписки,
         # і лише каталожні типи (owner / agency_no_fee).
         rows = (
             sb.table("listings")
-            .select("title,price_uah,city,district,rooms,url,created_at,listing_type,probability_of_owner,status")
+            .select("title,price_uah,city,district,rooms,property_type,url,created_at,listing_type,probability_of_owner,status")
             .eq("status", "active")
             .gt("created_at", sub["last_notified_at"])
             .order("created_at", desc=False)
@@ -164,19 +231,26 @@ def dispatch_new_listings() -> None:
                 ).eq("id", sub["id"]).execute()
             continue
 
-        sent = 0
-        for l in hits[:SEND_LIMIT_PER_SUB]:
-            if send_message(sub["telegram_chat_id"], format_listing(l)):
-                sent += 1
-            time.sleep(0.4)  # не впираємось у ліміти Telegram
+        if instant_ok:
+            sent = 0
+            for l in hits[:SEND_LIMIT_PER_SUB]:
+                if send_message(sub["telegram_chat_id"], format_listing(l)):
+                    sent += 1
+                time.sleep(0.4)  # не впираємось у ліміти Telegram
+            # Мітка = час найновішого надісланого; решта — наступного проходу.
+            newest = hits[min(SEND_LIMIT_PER_SUB, len(hits)) - 1]["created_at"]
+            if sent:
+                print(f"sub {sub['id'][:8]}: миттєво надіслано {sent}")
+        else:
+            # Дайджест: один лист на всі збіги, мітку двигаємо до найновішого
+            # ПЕРЕГЛЯНУТОГО, щоб добовий цикл не повторював те саме.
+            if send_message(sub["telegram_chat_id"], format_digest(hits)):
+                print(f"sub {sub['id'][:8]}: дайджест на {len(hits)}")
+            newest = rows[-1]["created_at"]
 
-        # Мітка = час найновішого надісланого (або останнього переглянутого).
-        newest = hits[min(SEND_LIMIT_PER_SUB, len(hits)) - 1]["created_at"]
         sb.table("alert_subscriptions").update(
             {"last_notified_at": newest}
         ).eq("id", sub["id"]).execute()
-        if sent:
-            print(f"sub {sub['id'][:8]}: надіслано {sent}")
 
 
 def main():
