@@ -160,6 +160,9 @@ export default async function CabinetPage() {
               <Link href="/post" className="flex items-center gap-2 text-on-surface hover:text-primary transition-colors font-label-md text-label-md">
                 <span className="material-symbols-outlined">add_home</span> Розмістити оголошення
               </Link>
+              <Link href="/contract-check" className="flex items-center gap-2 text-on-surface hover:text-primary transition-colors font-label-md text-label-md">
+                <span className="material-symbols-outlined">contract</span> Перевірити договір
+              </Link>
               <Link href="/favorites" className="flex items-center gap-2 text-on-surface hover:text-primary transition-colors font-label-md text-label-md">
                 <span className="material-symbols-outlined">favorite</span> Обране
               </Link>

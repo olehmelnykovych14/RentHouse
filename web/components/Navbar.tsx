@@ -6,6 +6,7 @@ import { createSupabaseServer } from "@/lib/supabase/server";
 const LINKS = [
   { label: "Огляд", href: "/" },
   { label: "Оголошення", href: "/listings" },
+  { label: "Перевірка договору", href: "/contract-check" },
   { label: "Обране", href: "/favorites" },
   { label: "Мій кабінет", href: "/dashboard" },
   { label: "Тарифи", href: "/pricing" },
