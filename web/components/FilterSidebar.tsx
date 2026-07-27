@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ListingFilters } from "@/lib/listings";
+import { CITIES } from "@/lib/cities";
 
 const inputCls =
   "w-full bg-surface-container-lowest border border-outline-variant/50 rounded-lg p-2 font-body-md text-body-md text-on-surface focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all";
@@ -29,6 +30,16 @@ export default function FilterSidebar({ filters }: { filters: ListingFilters }) 
         </div>
 
         <div className="space-y-6">
+          <div>
+            <label className="block font-label-md text-label-md text-on-surface mb-2">Місто</label>
+            <select name="city" defaultValue={filters.city ?? ""} className={inputCls}>
+              <option value="">Будь-яке</option>
+              {CITIES.map((c) => (
+                <option key={c.name} value={c.name}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="block font-label-md text-label-md text-on-surface mb-2">Тип житла</label>
             <select name="property_type" defaultValue={filters.property_type ?? ""} className={inputCls}>

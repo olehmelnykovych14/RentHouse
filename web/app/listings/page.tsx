@@ -15,6 +15,7 @@ function toFilters(sp: SearchParams): ListingFilters {
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
   return {
     q: one(sp.q),
+    city: one(sp.city),
     property_type: one(sp.property_type),
     price_min: one(sp.price_min),
     price_max: one(sp.price_max),

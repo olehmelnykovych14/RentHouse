@@ -102,6 +102,7 @@ export async function getPopularListings(limit = 3): Promise<Listing[]> {
 // ─────────────────────────────────────────────
 export type ListingFilters = {
   q?: string;
+  city?: string;
   property_type?: string;
   price_min?: string;
   price_max?: string;
@@ -129,6 +130,7 @@ export async function getListings(
 
   const num = (v?: string) => (v && !Number.isNaN(Number(v)) ? Number(v) : undefined);
 
+  if (f.city) query = query.eq("city", f.city);
   if (f.property_type) query = query.eq("property_type", f.property_type);
   const pMin = num(f.price_min);
   const pMax = num(f.price_max);
