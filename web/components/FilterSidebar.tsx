@@ -16,7 +16,7 @@ const AMENITIES = [
 
 export default function FilterSidebar({ filters }: { filters: ListingFilters }) {
   return (
-    <aside className="w-full md:w-1/4 flex-shrink-0 md:sticky md:top-[104px] md:self-start">
+    <aside className="w-full md:w-1/4 flex-shrink-0 md:sticky md:top-[104px] md:self-start md:max-h-[calc(100vh-104px-1rem)] md:overflow-y-auto md:pr-1">
       <form
         action="/listings"
         method="get"

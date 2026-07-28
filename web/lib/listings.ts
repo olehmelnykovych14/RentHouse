@@ -1,5 +1,9 @@
 import { createSupabaseServer } from "./supabase/server";
 
+// Клієнт-безпечний хелпер живе окремо (без next/headers), щоб клієнтські
+// компоненти могли його імпортувати; тут ре-експортуємо для сервера.
+export { isLocked } from "./listing-view";
+
 export type Listing = {
   id: string;
   title: string | null;
@@ -41,9 +45,6 @@ const CATALOG_TYPES = ["owner", "agency_no_fee"];
 
 const SELECT_COLS =
   "id,title,price,currency,price_uah,rooms,district,city,area_sqm,property_type,residential_complex,listing_type,owner_verified,commission,commission_verified,probability_of_owner,photos,created_at";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-const now = () => Date.now();
 
 // Мок-дані для розробки, поки Supabase не підключено (з дизайну Stitch).
 const MOCK_LISTINGS: Listing[] = [
@@ -117,20 +118,16 @@ export type ListingFilters = {
  * Оголошення каталогу з застосованими фільтрами. Повертає рядки + загальну кількість.
  * Падає на мок-дані, якщо Supabase не налаштовано.
  */
-export async function getListings(
-  f: ListingFilters
-): Promise<{ listings: Listing[]; count: number }> {
-  const supabase = createSupabaseServer();
-  if (!supabase) return { listings: MOCK_LISTINGS, count: MOCK_LISTINGS.length };
+const num = (v?: string) => (v && !Number.isNaN(Number(v)) ? Number(v) : undefined);
 
-  let query = supabase
-    .from("listings_public")
-    .select(SELECT_COLS, { count: "exact" })
-    .in("listing_type", CATALOG_TYPES);
-
-  const num = (v?: string) => (v && !Number.isNaN(Number(v)) ? Number(v) : undefined);
-
-  if (f.city) query = query.eq("city", f.city);
+/**
+ * Застосовує фільтри каталогу до запиту. `includeCity=false` навмисно пропускає
+ * місто — так підрахунок по містах (пігулки) бачить усі міста за інших фільтрів.
+ * Тип query — `any`: дженерики PostgREST-білдера тут лише заважають.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyCatalogFilters(query: any, f: ListingFilters, includeCity: boolean): any {
+  if (includeCity && f.city) query = query.eq("city", f.city);
   if (f.property_type) query = query.eq("property_type", f.property_type);
   const pMin = num(f.price_min);
   const pMax = num(f.price_max);
@@ -146,6 +143,20 @@ export async function getListings(
   if (num(f.floor) !== undefined) query = query.eq("floor", num(f.floor));
   if (f.furnished === "on" || f.furnished === "true") query = query.eq("has_furniture", true);
   if (f.q) query = query.or(`district.ilike.%${f.q}%,city.ilike.%${f.q}%`);
+  return query;
+}
+
+export async function getListings(
+  f: ListingFilters
+): Promise<{ listings: Listing[]; count: number }> {
+  const supabase = createSupabaseServer();
+  if (!supabase) return { listings: MOCK_LISTINGS, count: MOCK_LISTINGS.length };
+
+  let query = supabase
+    .from("listings_public")
+    .select(SELECT_COLS, { count: "exact" })
+    .in("listing_type", CATALOG_TYPES);
+  query = applyCatalogFilters(query, f, true);
 
   const { data, error, count } = await query.order("created_at", { ascending: false });
 
@@ -156,15 +167,41 @@ export async function getListings(
   return { listings: (data as unknown as Listing[]) ?? [], count: count ?? 0 };
 }
 
+export type CityCount = { city: string; count: number };
+
 /**
- * Чи заблоковане оголошення за paywall.
- * Правило: нові оголошення (молодші 24 год) видно лише підписникам.
- * Auth/підписок ще нема, тому subscribed=false — свіжі показуються заблокованими.
+ * Кількість оголошень по містах за поточних фільтрів (окрім самого міста) —
+ * для пігулок-перемикачів угорі каталогу. total = «Усі» за тих самих фільтрів.
  */
-export function isLocked(listing: Listing, subscribed = false): boolean {
-  if (subscribed) return false;
-  if (!listing.created_at) return false;
-  return now() - Date.parse(listing.created_at) < DAY_MS;
+export async function getCityCounts(
+  f: ListingFilters
+): Promise<{ counts: CityCount[]; total: number }> {
+  const supabase = createSupabaseServer();
+  if (!supabase) {
+    const m = new Map<string, number>();
+    for (const l of MOCK_LISTINGS) m.set(l.city ?? "—", (m.get(l.city ?? "—") ?? 0) + 1);
+    const counts = [...m].map(([city, count]) => ({ city, count })).sort((a, b) => b.count - a.count);
+    return { counts, total: MOCK_LISTINGS.length };
+  }
+
+  let query = supabase.from("listings_public").select("city").in("listing_type", CATALOG_TYPES);
+  query = applyCatalogFilters(query, f, false);
+
+  const { data, error } = await query.limit(2000);
+  if (error) {
+    console.error("[listings] getCityCounts:", error.message);
+    return { counts: [], total: 0 };
+  }
+  const rows = (data as unknown as { city: string | null }[]) ?? [];
+  const m = new Map<string, number>();
+  for (const r of rows) {
+    const c = (r.city ?? "").trim();
+    if (c) m.set(c, (m.get(c) ?? 0) + 1);
+  }
+  const counts = [...m]
+    .map(([city, count]) => ({ city, count }))
+    .sort((a, b) => b.count - a.count || a.city.localeCompare(b.city, "uk"));
+  return { counts, total: rows.length };
 }
 
 // ─────────────────────────────────────────────

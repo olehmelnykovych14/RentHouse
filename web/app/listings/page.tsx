@@ -2,8 +2,9 @@ import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import FilterSidebar from "@/components/FilterSidebar";
+import CityPills from "@/components/CityPills";
 import CatalogCard from "@/components/CatalogCard";
-import { getListings, getFavoriteIds, type ListingFilters } from "@/lib/listings";
+import { getListings, getCityCounts, getFavoriteIds, type Listing, type ListingFilters } from "@/lib/listings";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +30,16 @@ function toFilters(sp: SearchParams): ListingFilters {
 
 export default async function ListingsPage({ searchParams }: { searchParams: SearchParams }) {
   const filters = toFilters(searchParams);
-  const [{ listings, count }, favIds] = await Promise.all([getListings(filters), getFavoriteIds()]);
+  const [{ listings, count }, cityData, favIds] = await Promise.all([
+    getListings(filters),
+    getCityCounts(filters),
+    getFavoriteIds(),
+  ]);
+
+  // Групуємо за містом лише коли місто не обране — тоді плоский мікс стає
+  // впорядкованими секціями. Порядок секцій = порядок пігулок (за кількістю).
+  const grouped = !filters.city && listings.length > 0;
+  const cityGroups = grouped ? groupByCity(listings, cityData.counts.map((c) => c.city)) : [];
 
   return (
     <>
@@ -38,9 +48,17 @@ export default async function ListingsPage({ searchParams }: { searchParams: Sea
         <FilterSidebar filters={filters} />
 
         <section className="w-full md:w-3/4 flex flex-col gap-6">
+          <CityPills
+            counts={cityData.counts}
+            total={cityData.total}
+            active={filters.city}
+            searchParams={searchParams}
+          />
+
           <div className="flex justify-between items-center">
             <div className="font-body-md text-body-md text-on-surface-variant">
               Знайдено {count} {count === 1 ? "оголошення" : "оголошень"}
+              {filters.city ? ` · ${filters.city}` : ""}
             </div>
             <div className="flex bg-surface-container-low rounded-lg p-1 border border-outline-variant/20">
               <button className="px-3 py-1 rounded bg-surface-container-lowest text-primary shadow-sm flex items-center gap-1 font-label-md text-label-md">
@@ -63,6 +81,25 @@ export default async function ListingsPage({ searchParams }: { searchParams: Sea
               <span className="material-symbols-outlined text-[48px] mb-2">search_off</span>
               <p className="font-body-md text-body-md">За такими фільтрами нічого не знайдено.</p>
             </div>
+          ) : grouped ? (
+            <div className="flex flex-col gap-8">
+              {cityGroups.map((g) => (
+                <section key={g.city}>
+                  <h2 className="font-headline-sm text-title-lg text-on-surface flex items-center gap-2 mb-4">
+                    <span className="material-symbols-outlined text-[20px] text-primary">location_city</span>
+                    {g.city}
+                    <span className="font-caption text-caption text-on-surface-variant bg-surface-container-high px-2 py-0.5 rounded-full">
+                      {g.listings.length}
+                    </span>
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-gutter">
+                    {g.listings.map((l, i) => (
+                      <CatalogCard key={l.id} listing={l} favorited={favIds.has(l.id)} index={i} />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-gutter">
               {listings.map((l, i) => (
@@ -75,4 +112,30 @@ export default async function ListingsPage({ searchParams }: { searchParams: Sea
       <Footer />
     </>
   );
+}
+
+/** Розкладає оголошення по містах у заданому порядку; невідоме місто — в кінець. */
+function groupByCity(
+  listings: Listing[],
+  order: string[]
+): { city: string; listings: Listing[] }[] {
+  const byCity = new Map<string, Listing[]>();
+  for (const l of listings) {
+    const c = (l.city ?? "").trim() || "Інше";
+    if (!byCity.has(c)) byCity.set(c, []);
+    byCity.get(c)!.push(l);
+  }
+  const seen = new Set<string>();
+  const groups: { city: string; listings: Listing[] }[] = [];
+  for (const city of order) {
+    if (byCity.has(city)) {
+      groups.push({ city, listings: byCity.get(city)! });
+      seen.add(city);
+    }
+  }
+  // Міста, яких не було в order (напр. "Інше" або нове), — у кінець.
+  for (const [city, ls] of byCity) {
+    if (!seen.has(city)) groups.push({ city, listings: ls });
+  }
+  return groups;
 }
