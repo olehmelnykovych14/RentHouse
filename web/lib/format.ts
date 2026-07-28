@@ -7,6 +7,20 @@ export function formatPrice(price: number | null, currency: string | null): stri
   return `${symbol} ${amount}`;
 }
 
+/** «Свіжість» оголошення людською мовою: сьогодні / вчора / N дн. / N тиж. тому. */
+export function relativeDate(iso: string | null): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (Number.isNaN(t)) return "";
+  const days = Math.floor((Date.now() - t) / 86_400_000);
+  if (days <= 0) return "сьогодні";
+  if (days === 1) return "вчора";
+  if (days < 7) return `${days} дн. тому`;
+  if (days < 30) return `${Math.floor(days / 7)} тиж. тому`;
+  if (days < 365) return `${Math.floor(days / 30)} міс. тому`;
+  return `${Math.floor(days / 365)} р. тому`;
+}
+
 /**
  * Читабельний заголовок оголошення. Скрапер кладе в `title` перші ~120 символів
  * тексту поста, тож він обривається посеред слова («…відкривається в»). Перший

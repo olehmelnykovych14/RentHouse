@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 import type { Listing } from "@/lib/listings";
 import { isLocked } from "@/lib/listing-view";
-import { formatPrice, listingTitle } from "@/lib/format";
+import { formatPrice, listingTitle, relativeDate } from "@/lib/format";
 import FavoriteButton from "./FavoriteButton";
 
 export default function CatalogCard({
@@ -142,9 +142,12 @@ export default function CatalogCard({
           </div>
         </div>
 
-        <p className="font-caption text-caption text-on-surface-variant mb-4 flex items-center">
-          <span className="material-symbols-outlined text-[16px] mr-1">location_on</span>
-          {location || "—"}
+        <p className="font-caption text-caption text-on-surface-variant mb-4 flex items-center gap-1">
+          <span className="material-symbols-outlined text-[16px]">location_on</span>
+          <span className="truncate">{location || "—"}</span>
+          {listing.created_at && (
+            <span className="ml-auto shrink-0 pl-2 text-outline">{relativeDate(listing.created_at)}</span>
+          )}
         </p>
 
         <div className="flex flex-wrap gap-2 mb-6 mt-auto">

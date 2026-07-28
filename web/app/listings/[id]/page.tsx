@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { getListingById, getFavoriteIds } from "@/lib/listings";
-import { formatPrice, listingTitle } from "@/lib/format";
+import { formatPrice, listingTitle, relativeDate } from "@/lib/format";
 import PhotoGallery from "@/components/PhotoGallery";
 import FavoriteButton from "@/components/FavoriteButton";
 
@@ -60,9 +60,15 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
             <h1 className="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-background mb-2">
               {listingTitle(listing.title, listing.clean_description)}
             </h1>
-            <div className="flex items-center gap-2 text-on-surface-variant font-body-md text-body-md">
+            <div className="flex items-center gap-2 text-on-surface-variant font-body-md text-body-md flex-wrap">
               <span className="material-symbols-outlined text-[20px]">location_on</span>
               <span>{[listing.district, listing.city].filter(Boolean).join(", ") || "—"}</span>
+              {listing.created_at && (
+                <span className="flex items-center gap-1 text-outline font-caption text-caption">
+                  <span className="material-symbols-outlined text-[16px]">schedule</span>
+                  додано {relativeDate(listing.created_at)}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-4">
