@@ -384,24 +384,24 @@ def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw
     except Exception as e:
         print(f"⚠️ Supabase upsert не вдався: {e}")
 
-async def handler(event):
-    text = event.message.message
-    if not text or len(text) < 40:
-        return
-
-    print(f"\n📩 Нове повідомлення в одному з чатів. Аналізую...")
+async def process_post(event, text: str, messages: list, anchor) -> None:
+    """
+    Спільна обробка поста (одиночного або альбому): AI-класифікація, фото у
+    Storage, запис у Supabase, сповіщення. `messages` — усі повідомлення групи
+    (для фото), `anchor` — повідомлення, за яким будуємо посилання й external_id.
+    """
+    print("\n📩 Нове повідомлення в одному з чатів. Аналізую...")
 
     # Discovery: підхоплюємо @згадки інших каналів у чергу на модерацію
     discover_channels_from_text(text)
 
     extraction = ai_check(text)
     prob = extraction["probability_of_owner"]
-
     print(f"⚖️ Вердикт AI: {prob}%")
 
     try:
         chat = await event.get_chat()
-        msg_id = event.message.id
+        msg_id = anchor.id
 
         # Спроба створити пряме посилання на пост
         if chat.username:
@@ -413,9 +413,8 @@ async def handler(event):
 
         external_id = f"{event.chat_id}_{msg_id}"
 
-        # Фото → Supabase Storage. Наразі беремо фото з повідомлення-підпису;
-        # повна підтримка альбомів (events.Album) — окремий крок.
-        photos = await collect_photos(event, [event.message], external_id)
+        # Фото → Supabase Storage. Для альбому беремо всі фото групи.
+        photos = await collect_photos(event, messages, external_id)
 
         # Зберігаємо в Supabase все, що дійшло до AI-аналізу — поріг застосовується
         # на рівні фронтенду/запиту, а не на етапі збору даних.
@@ -448,6 +447,26 @@ async def handler(event):
     except Exception as e:
         print(f"⚠️ Помилка при обробці повідомлення: {e}")
 
+
+async def handler(event):
+    # Групові пости (альбоми) обробляє album_handler — тут пропускаємо, щоб
+    # не записати оголошення двічі (кожен елемент альбому шле свій NewMessage).
+    if getattr(event.message, "grouped_id", None):
+        return
+    text = event.message.message
+    if not text or len(text) < 40:
+        return
+    await process_post(event, text, [event.message], event.message)
+
+
+async def album_handler(event):
+    # Альбом: підпис — на одному з повідомлень, фото — на всіх. event.text дає
+    # об'єднаний підпис; event.messages — усі елементи групи.
+    text = event.text or ""
+    if not text or len(text) < 40:
+        return
+    await process_post(event, text, list(event.messages), event.messages[0])
+
 async def main():
     print("-" * 30)
     print("🚀 Telegram Hunter v3.0 запущен!")
@@ -456,6 +475,7 @@ async def main():
     seed_channels_to_db()
     channels = load_active_channels()
     tg_client.add_event_handler(handler, events.NewMessage(chats=channels))
+    tg_client.add_event_handler(album_handler, events.Album(chats=channels))
 
     print(f"📡 Моніторинг {len(channels)} каналів: {', '.join(channels)}")
     print(f"👥 Отримувачі: {', '.join(CHAT_IDS)}")

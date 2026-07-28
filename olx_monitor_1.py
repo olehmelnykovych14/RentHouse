@@ -319,7 +319,7 @@ def fetch_ad_details(session: requests.Session, ad_url: str) -> dict | None:
     is_business = parse_is_business(resp.text)
 
     # Фото оголошення (сирі URL з CDN OLX)
-    photo_urls = _extract_photo_urls(soup)
+    photo_urls = _extract_photo_urls(soup, resp.text)
 
     # Дата реєстрації продавця (якщо є)
     reg_date = ""
@@ -341,18 +341,47 @@ def fetch_ad_details(session: requests.Session, ad_url: str) -> dict | None:
     }
 
 
-def _extract_photo_urls(soup: BeautifulSoup) -> list[str]:
-    """Витягує URL фотографій оголошення з галереї OLX (до MAX_PHOTOS, без дублів)."""
+# Фото в стані сторінки OLX: ireland.apollo.olxcdn.com[:443]/v1/files/<hash>/image;s=WxH
+_OLX_PHOTO_RE = re.compile(
+    r"https://ireland\.apollo\.olxcdn\.com(?::\d+)?/v1/files/([A-Za-z0-9\-]+)/image;s=\d+x\d+"
+)
+
+
+def _extract_photo_urls(soup: BeautifulSoup, html: str = "") -> list[str]:
+    """
+    Усі фото оголошення (до MAX_PHOTOS, без дублів).
+
+    OLX вантажить галерею через JS, тож у статичному HTML її нема — раніше звідси
+    виходило лише 1 фото (og:image). Але всі фото лежать у вбудованому стані
+    сторінки як ireland.apollo.olxcdn.com/v1/files/<hash>/image;s={width}x{height}
+    (слеші в JSON екрановані як \\/). Беремо їх звідти, дедуп за хешем файла.
+    Резерв — стара swiper-галерея та og:image.
+    """
     urls: list[str] = []
 
+    # 1) Основне: вбудований стан сторінки — тут усі фото.
+    if html:
+        seen: set[str] = set()
+        for m in _OLX_PHOTO_RE.finditer(html.replace("\\/", "/")):
+            h = m.group(1)
+            if h in seen:
+                continue
+            seen.add(h)
+            url = m.group(0).replace(":443", "")
+            url = re.sub(r"s=\d+x\d+", "s=1000x700", url)  # єдиний розмір
+            urls.append(url)
+            if len(urls) >= MAX_PHOTOS:
+                break
+    if urls:
+        return urls
+
+    # 2) Резерв: swiper-галерея (для сторінок зі старою розміткою).
     candidates = (
         soup.select('img[data-testid="swiper-image"]')
         or soup.select(".swiper-slide img")
         or soup.select('[data-cy="adPhotos-swiperSlide"] img')
     )
-
     for img in candidates:
-        # srcset дає найбільшу роздільність — беремо останній варіант
         src = ""
         srcset = img.get("srcset")
         if srcset:
@@ -362,7 +391,7 @@ def _extract_photo_urls(soup: BeautifulSoup) -> list[str]:
         if src.startswith("http") and ("olxcdn" in src or "apollo" in src) and src not in urls:
             urls.append(src)
 
-    # Резерв: og:image, якщо галерею не знайшли
+    # 3) Останній резерв: og:image.
     if not urls:
         for meta in soup.select('meta[property="og:image"]'):
             src = meta.get("content", "")
