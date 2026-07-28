@@ -11,9 +11,11 @@ import Link from "next/link";
 export default function ProfileMenu({
   displayName,
   initial,
+  isAdmin = false,
 }: {
   displayName: string;
   initial: string;
+  isAdmin?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -71,6 +73,11 @@ export default function ProfileMenu({
           <MenuLink href="/contract-check" icon="contract" onSelect={() => setOpen(false)}>
             Перевірка договору
           </MenuLink>
+          {isAdmin && (
+            <MenuLink href="/admin" icon="shield_person" onSelect={() => setOpen(false)}>
+              Модерація
+            </MenuLink>
+          )}
           <div className="my-1 border-t border-surface-variant" />
           <form action="/auth/signout" method="post">
             <button

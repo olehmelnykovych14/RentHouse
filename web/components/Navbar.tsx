@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createSupabaseServer } from "@/lib/supabase/server";
+import { isAdminEmail } from "@/lib/admin";
 import ProfileMenu from "./ProfileMenu";
 
 // Вгорі лишаємо тільки основний перегляд. Особисте (кабінет, перевірка
@@ -49,7 +50,7 @@ export default async function Navbar() {
 
         <div className="flex gap-3 items-center">
           {user ? (
-            <ProfileMenu displayName={displayName} initial={initial} />
+            <ProfileMenu displayName={displayName} initial={initial} isAdmin={isAdminEmail(user.email)} />
           ) : (
             <Link
               href="/login"
