@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { getListingById, getFavoriteIds } from "@/lib/listings";
-import { formatPrice } from "@/lib/format";
+import { formatPrice, listingTitle } from "@/lib/format";
 import PhotoGallery from "@/components/PhotoGallery";
 import FavoriteButton from "@/components/FavoriteButton";
 
@@ -11,7 +11,9 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: { id: string } }) {
   const listing = await getListingById(params.id);
-  return { title: listing?.title ? `${listing.title} — RentDirect` : "Оголошення — RentDirect" };
+  return {
+    title: listing ? `${listingTitle(listing.title, listing.clean_description)} — RentDirect` : "Оголошення — RentDirect",
+  };
 }
 
 export default async function ListingDetailPage({ params }: { params: { id: string } }) {
@@ -56,7 +58,7 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-gutter gap-4">
           <div>
             <h1 className="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-on-background mb-2">
-              {listing.title ?? "Квартира"}
+              {listingTitle(listing.title, listing.clean_description)}
             </h1>
             <div className="flex items-center gap-2 text-on-surface-variant font-body-md text-body-md">
               <span className="material-symbols-outlined text-[20px]">location_on</span>
@@ -65,7 +67,7 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
           </div>
           <div className="flex items-center gap-4">
             <span className="font-headline-lg-mobile md:font-headline-lg text-headline-lg-mobile md:text-headline-lg text-primary">
-              {formatPrice(listing.price, listing.currency)}{" "}
+              <span className="whitespace-nowrap">{formatPrice(listing.price, listing.currency)}</span>{" "}
               <span className="font-body-md text-body-md text-on-surface-variant">/ міс</span>
             </span>
             <FavoriteButton

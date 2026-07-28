@@ -1,6 +1,11 @@
+"use client";
+
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { type Listing, isLocked } from "@/lib/listings";
-import { formatPrice } from "@/lib/format";
+import { useState } from "react";
+import type { Listing } from "@/lib/listings";
+import { isLocked } from "@/lib/listing-view";
+import { formatPrice, listingTitle } from "@/lib/format";
 import FavoriteButton from "./FavoriteButton";
 
 export default function CatalogCard({
@@ -13,52 +18,92 @@ export default function CatalogCard({
   /** Порядок у сітці — щоб картки з'являлись каскадом, а не всі разом. */
   index?: number;
 }) {
+  const router = useRouter();
+  const href = `/listings/${listing.id}`;
   const locked = isLocked(listing); // subscribed=false, поки нема auth
   const isNoFeeAgency = listing.listing_type === "agency_no_fee";
   // «Перевірений» — лише там, де джерело прямо назвало продавця власником.
-  // Решта — висновок від відсутності ознак посередника, і мітка це визнає.
   const verified = listing.owner_verified === true;
-  const photo = listing.photos?.[0];
+  const photos = listing.photos ?? [];
+  const [photo, setPhoto] = useState(0);
   const location = [listing.city, listing.district].filter(Boolean).join(", ");
   const tags: string[] = [];
   if (listing.rooms) tags.push(`${listing.rooms} кімн.`);
   if (listing.area_sqm) tags.push(`${listing.area_sqm} м²`);
   if (listing.residential_complex) tags.push(listing.residential_complex);
 
+  // Внутрішні кнопки не мають відкривати оголошення — гасимо сплиття.
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+  const flip = (e: React.MouseEvent, dir: 1 | -1) => {
+    e.stopPropagation();
+    setPhoto((p) => (p + dir + photos.length) % photos.length);
+  };
+
+  function open() {
+    router.push(href);
+  }
+
   return (
     <div
-      className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden hover:shadow-card-hover hover:-translate-y-1 transition-[transform,box-shadow] duration-300 ease-out-soft motion-safe:animate-fade-up group flex flex-col"
-      // Каскад обмежуємо 8 картками: далі затримка почала б відчуватись
-      // як гальмування, а не як анімація.
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") open();
+      }}
+      role="link"
+      tabIndex={0}
+      aria-label={listingTitle(listing.title, listing.clean_description)}
+      className="bg-surface-container-lowest rounded-xl border border-outline-variant/20 overflow-hidden hover:shadow-card-hover hover:-translate-y-1 transition-[transform,box-shadow] duration-300 ease-out-soft motion-safe:animate-fade-up group flex flex-col cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       style={{ animationDelay: `${Math.min(index, 8) * 55}ms` }}
     >
       <div className="relative h-48 w-full bg-surface-container overflow-hidden">
-        {photo && (
+        {photos[photo] && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={photo}
-            alt={listing.title ?? "Квартира"}
+            src={photos[photo]}
+            alt={listingTitle(listing.title, listing.clean_description)}
             className="w-full h-full object-cover transition-transform duration-500 ease-out-soft group-hover:scale-105"
           />
         )}
 
-        {/* Обидві мітки в одному ряду: як окремі absolute-елементи вони не знали
-            одна про одну й накладались, щойно текст ставав довшим. flex-wrap —
-            запобіжник на вузьких картках. */}
-        <div className="absolute top-2 left-2 right-2 z-10 flex flex-wrap items-start justify-between gap-1.5">
-          {/* Агенцію без комісії НЕ називаємо власником, а висновок від
-              відсутності ознак — не називаємо перевіркою. */}
+        {/* Гортання фото — лише коли їх більше одного */}
+        {photos.length > 1 && (
+          <>
+            <button
+              type="button"
+              onClick={(e) => flip(e, -1)}
+              aria-label="Попереднє фото"
+              className="absolute left-2 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-black/35 hover:bg-black/55 text-white flex items-center justify-center transition-colors"
+            >
+              <span className="material-symbols-outlined text-[20px]">chevron_left</span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => flip(e, 1)}
+              aria-label="Наступне фото"
+              className="absolute right-2 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-black/35 hover:bg-black/55 text-white flex items-center justify-center transition-colors"
+            >
+              <span className="material-symbols-outlined text-[20px]">chevron_right</span>
+            </button>
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
+              {photos.slice(0, 8).map((_, i) => (
+                <span
+                  key={i}
+                  className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                    i === photo ? "bg-white" : "bg-white/50"
+                  }`}
+                />
+              ))}
+            </div>
+          </>
+        )}
+
+        <div className="absolute top-2 left-2 right-2 z-10 flex flex-wrap items-start justify-between gap-1.5 pointer-events-none">
           <div
             className={`backdrop-blur-sm px-2 py-1 rounded font-caption text-caption flex items-center gap-1 border shrink-0 ${
               verified
                 ? "bg-secondary-fixed text-on-secondary-fixed border-secondary-fixed-dim"
                 : "bg-surface-container-lowest/85 text-on-surface-variant border-outline-variant/40"
             }`}
-            title={
-              verified
-                ? "Джерело прямо вказало, що оголошення подав власник"
-                : "Джерело не вказало, хто подав оголошення. Ознак посередника не виявлено — це не те саме, що підтверджене власництво."
-            }
           >
             <span className="material-symbols-outlined text-[14px]">
               {isNoFeeAgency ? "percent" : verified ? "verified" : "search"}
@@ -70,7 +115,6 @@ export default function CatalogCard({
                 : "Без ознак посередника"}
           </div>
 
-          {/* Для агенції без комісії питання «чи це власник» не стоїть. */}
           {!isNoFeeAgency && (
             <div className="ml-auto bg-brand-blue text-on-primary px-2 py-1 rounded font-caption text-caption flex items-center gap-1 shadow-sm shrink-0">
               🤖 AI: {listing.probability_of_owner ?? "?"}% власник
@@ -78,18 +122,20 @@ export default function CatalogCard({
           )}
         </div>
 
-        {/* Обране */}
-        <FavoriteButton
-          listingId={listing.id}
-          initial={favorited}
-          className="absolute bottom-2 right-2 z-20 w-9 h-9 rounded-full bg-surface-container-lowest/90 backdrop-blur-sm flex items-center justify-center shadow-sm transition-transform duration-200 ease-spring hover:scale-110 active:scale-95"
-        />
+        {/* Обране — клік по серцю не відкриває оголошення */}
+        <div onClick={stop} className="absolute bottom-2 right-2 z-20">
+          <FavoriteButton
+            listingId={listing.id}
+            initial={favorited}
+            className="w-9 h-9 rounded-full bg-surface-container-lowest/90 backdrop-blur-sm flex items-center justify-center shadow-sm transition-transform duration-200 ease-spring hover:scale-110 active:scale-95"
+          />
+        </div>
       </div>
 
       <div className="p-4 flex-grow flex flex-col">
         <div className="flex justify-between items-start mb-1 gap-2">
           <h3 className="font-headline-md text-headline-lg-mobile text-on-surface line-clamp-1">
-            {listing.title ?? "Квартира"}
+            {listingTitle(listing.title, listing.clean_description)}
           </h3>
           <div className="font-display-lg text-[20px] text-brand-blue whitespace-nowrap">
             {formatPrice(listing.price, listing.currency)}
@@ -110,11 +156,11 @@ export default function CatalogCard({
         </div>
 
         {/* Платним лишається КОНТАКТ, а не оголошення: фото, ціна й адреса
-            видні всім. Раніше замилена картка ховала саме те, що продає
-            квартиру, і виглядала як помилка завантаження. */}
+            видні всім. Кнопки гасять сплиття, щоб мати власну ціль. */}
         {locked ? (
           <Link
             href="/pricing"
+            onClick={stop}
             className="flex items-center justify-center gap-2 text-center w-full bg-surface-container text-primary border border-outline-variant font-label-md text-label-md py-2.5 rounded-lg hover:bg-surface-container-high transition-colors duration-200"
           >
             <span className="material-symbols-outlined text-[18px]">lock</span>
@@ -122,7 +168,8 @@ export default function CatalogCard({
           </Link>
         ) : (
           <Link
-            href={`/listings/${listing.id}`}
+            href={href}
+            onClick={stop}
             className="block text-center w-full bg-brand-teal text-on-secondary font-label-md text-label-md py-2.5 rounded-lg hover:brightness-110 active:scale-[0.98] transition-[filter,transform] duration-200"
           >
             Зв&apos;язатися з власником
