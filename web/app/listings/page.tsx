@@ -1,4 +1,5 @@
 import Link from "next/link";
+import dynamicImport from "next/dynamic";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import FilterSidebar from "@/components/FilterSidebar";
@@ -9,6 +10,14 @@ import { getListings, getCityCounts, getFavoriteIds, type Listing, type ListingF
 export const dynamic = "force-dynamic";
 
 export const metadata = { title: "Каталог квартир від власників — RentDirect" };
+
+// Leaflet чіпає window — тільки на клієнті, без SSR.
+const ListingsMap = dynamicImport(() => import("@/components/ListingsMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-[60vh] rounded-xl border border-surface-variant bg-surface-container-low animate-pulse" />
+  ),
+});
 
 type SearchParams = { [key: string]: string | string[] | undefined };
 
@@ -28,8 +37,22 @@ function toFilters(sp: SearchParams): ListingFilters {
   };
 }
 
+/** Посилання на той самий каталог із перемкнутим виглядом (list ↔ map). */
+function viewHref(sp: SearchParams, view: "map" | null): string {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (k === "view") continue;
+    const val = Array.isArray(v) ? v[0] : v;
+    if (val) params.set(k, val);
+  }
+  if (view) params.set("view", view);
+  const qs = params.toString();
+  return qs ? `/listings?${qs}` : "/listings";
+}
+
 export default async function ListingsPage({ searchParams }: { searchParams: SearchParams }) {
   const filters = toFilters(searchParams);
+  const isMap = (Array.isArray(searchParams.view) ? searchParams.view[0] : searchParams.view) === "map";
   const [{ listings, count }, cityData, favIds] = await Promise.all([
     getListings(filters),
     getCityCounts(filters),
@@ -38,7 +61,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: Sea
 
   // Групуємо за містом лише коли місто не обране — тоді плоский мікс стає
   // впорядкованими секціями. Порядок секцій = порядок пігулок (за кількістю).
-  const grouped = !filters.city && listings.length > 0;
+  const grouped = !isMap && !filters.city && listings.length > 0;
   const cityGroups = grouped ? groupByCity(listings, cityData.counts.map((c) => c.city)) : [];
 
   return (
@@ -61,10 +84,25 @@ export default async function ListingsPage({ searchParams }: { searchParams: Sea
               {filters.city ? ` · ${filters.city}` : ""}
             </div>
             <div className="flex bg-surface-container-low rounded-lg p-1 border border-outline-variant/20">
-              <button className="px-3 py-1 rounded bg-surface-container-lowest text-primary shadow-sm flex items-center gap-1 font-label-md text-label-md">
+              <Link
+                href={viewHref(searchParams, null)}
+                className={`px-3 py-1 rounded flex items-center gap-1 font-label-md text-label-md transition-colors ${
+                  isMap ? "text-on-surface-variant hover:text-on-surface" : "bg-surface-container-lowest text-primary shadow-sm"
+                }`}
+              >
                 <span className="material-symbols-outlined text-[20px]">list</span>
                 <span className="hidden sm:inline">Список</span>
-              </button>
+              </Link>
+              <Link
+                href={viewHref(searchParams, "map")}
+                className={`px-3 py-1 rounded flex items-center gap-1 font-label-md text-label-md transition-colors ${
+                  isMap ? "bg-surface-container-lowest text-primary shadow-sm" : "text-on-surface-variant hover:text-on-surface"
+                }`}
+                title="Показати оголошення на карті"
+              >
+                <span className="material-symbols-outlined text-[20px]">map</span>
+                <span className="hidden sm:inline">Карта</span>
+              </Link>
               <Link
                 href="/swipe"
                 className="px-3 py-1 rounded text-on-surface-variant hover:text-on-surface flex items-center gap-1 font-label-md text-label-md transition-colors"
@@ -81,6 +119,8 @@ export default async function ListingsPage({ searchParams }: { searchParams: Sea
               <span className="material-symbols-outlined text-[48px] mb-2">search_off</span>
               <p className="font-body-md text-body-md">За такими фільтрами нічого не знайдено.</p>
             </div>
+          ) : isMap ? (
+            <ListingsMap listings={listings} />
           ) : grouped ? (
             <div className="flex flex-col gap-8">
               {cityGroups.map((g) => (

@@ -44,7 +44,7 @@ export type Listing = {
 const CATALOG_TYPES = ["owner", "agency_no_fee"];
 
 const SELECT_COLS =
-  "id,title,price,currency,price_uah,rooms,district,city,area_sqm,property_type,residential_complex,listing_type,owner_verified,commission,commission_verified,probability_of_owner,photos,created_at";
+  "id,title,price,currency,price_uah,rooms,district,city,area_sqm,property_type,residential_complex,listing_type,owner_verified,commission,commission_verified,probability_of_owner,photos,created_at,lat,lng,clean_description";
 
 // Мок-дані для розробки, поки Supabase не підключено (з дизайну Stitch).
 const MOCK_LISTINGS: Listing[] = [
@@ -303,8 +303,7 @@ export async function getMedianPrice(
 }
 
 const DETAIL_COLS =
-  SELECT_COLS +
-  ",floor,total_floors,has_furniture,lat,lng,clean_description,seller_contact,original_url,source";
+  SELECT_COLS + ",floor,total_floors,has_furniture,seller_contact,original_url,source";
 
 /** Одне оголошення для сторінки деталей. null, якщо не знайдено. */
 export async function getListingById(id: string): Promise<Listing | null> {
