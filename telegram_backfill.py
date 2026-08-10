@@ -27,16 +27,39 @@ def ascii_safe(s: str) -> str:
     return (s or "").encode("ascii", "backslashreplace").decode()
 
 
-async def photos_from_message(client, message, external_id: str) -> list[str]:
-    """Завантажує фото повідомлення у Supabase Storage."""
-    if not getattr(message, "photo", None):
-        return []
-    try:
-        data = await client.download_media(message, file=bytes)
-    except Exception:
-        return []
-    url = tp.upload_photo_bytes_to_storage(data, external_id, 0)
-    return [url] if url else []
+async def photos_from_message(client, message, external_id: str, entity=None) -> list[str]:
+    """
+    Усі фото поста у Supabase Storage. Пости в каналах часто йдуть АЛЬБОМОМ:
+    підпис на одному повідомленні, решта фото — в сусідніх із тим самим
+    grouped_id. Раніше брали лише саме повідомлення, тож виходило 1 фото.
+    """
+    group_id = getattr(message, "grouped_id", None)
+    messages = [message]
+
+    if group_id and entity is not None:
+        try:
+            # Альбом лежить у сусідніх id — беремо вікно навколо й фільтруємо.
+            around = await client.get_messages(
+                entity, limit=20, min_id=message.id - 11, max_id=message.id + 11
+            )
+            album = [m for m in around if getattr(m, "grouped_id", None) == group_id]
+            if album:
+                messages = sorted(album, key=lambda m: m.id)
+        except Exception:
+            pass
+
+    urls: list[str] = []
+    for idx, msg in enumerate(messages):
+        if not getattr(msg, "photo", None) or idx >= tp.MAX_PHOTOS:
+            continue
+        try:
+            data = await client.download_media(msg, file=bytes)
+        except Exception:
+            continue
+        url = tp.upload_photo_bytes_to_storage(data, external_id, idx)
+        if url:
+            urls.append(url)
+    return urls
 
 
 async def main():
@@ -84,7 +107,7 @@ async def main():
             listing_type, _ = tp.classify(extraction)
             stats[{"owner": "owner", "agency_no_fee": "no_fee"}.get(listing_type, "agency")] += 1
 
-            photos = await photos_from_message(client, message, external_id)
+            photos = await photos_from_message(client, message, external_id, entity)
             city = tp.CHANNEL_CITY.get(username.lower())
             tp.upsert_listing_to_supabase(extraction, external_id, link, text, photos, city)
             stats["saved"] += 1
