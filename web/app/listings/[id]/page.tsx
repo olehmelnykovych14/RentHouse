@@ -7,6 +7,7 @@ import { formatPrice, listingTitle, relativeDate } from "@/lib/format";
 import { riskFlags } from "@/lib/risk";
 import PhotoGallery from "@/components/PhotoGallery";
 import FavoriteButton from "@/components/FavoriteButton";
+import ReportButton from "@/components/ReportButton";
 
 export const dynamic = "force-dynamic";
 
@@ -241,6 +242,11 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
                     Оформити Premium для перегляду
                   </Link>
                 )}
+              </div>
+
+              {/* Скарга — стримано, під основними діями */}
+              <div className="mt-4 pt-4 border-t border-surface-variant">
+                <ReportButton listingId={listing.id} />
               </div>
             </div>
           </div>
