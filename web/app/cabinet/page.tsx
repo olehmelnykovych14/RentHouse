@@ -54,7 +54,7 @@ export default async function CabinetPage() {
   // будь-якого статусу — на відміну від каталогу, який показує лише active).
   const { data: myRows } = await supabase
     .from("listings")
-    .select("id, title, city, district, price, currency, status, photos, created_at")
+    .select("id, title, clean_description, city, district, price, currency, status, photos, created_at")
     .eq("posted_by", user.id)
     .order("created_at", { ascending: false });
   const myListings = (myRows ?? []) as MyListing[];

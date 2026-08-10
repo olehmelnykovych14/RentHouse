@@ -11,6 +11,7 @@
 """
 import sys
 import time
+from datetime import datetime, timedelta, timezone
 
 import requests
 
@@ -22,6 +23,17 @@ LIMIT = 1000
 if "--limit" in sys.argv:
     try:
         LIMIT = int(sys.argv[sys.argv.index("--limit") + 1])
+    except (IndexError, ValueError):
+        pass
+
+# --stale-days N: додатково зняти оголошення, старші за N днів (незалежно від
+# URL). Потрібно для Telegram, який не віддає 404 при знятті, і як запобіжник
+# від «вічних» оренд. Оголошення від власника (source=user) не чіпаємо — ними
+# керує сам власник кнопкою «Позначити зданою».
+STALE_DAYS = None
+if "--stale-days" in sys.argv:
+    try:
+        STALE_DAYS = int(sys.argv[sys.argv.index("--stale-days") + 1])
     except (IndexError, ValueError):
         pass
 
@@ -52,13 +64,39 @@ def check(url: str) -> tuple[bool, str]:
     return False, f"HTTP {r.status_code}"
 
 
+def expire_ids(ids: list[str]) -> None:
+    for i in range(0, len(ids), 50):
+        sb.table("listings").update({"status": "expired"}).in_("id", ids[i:i + 50]).execute()
+
+
+def sweep_stale(days: int) -> None:
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rows = (
+        sb.table("listings").select("id,title,created_at")
+        .in_("source", ["olx", "dimria", "telegram", "facebook"])
+        .eq("status", "active").lt("created_at", cutoff)
+        .limit(5000).execute().data
+    )
+    print(f"\nстарших за {days} дн.: {len(rows)}")
+    if not rows:
+        return
+    if APPLY:
+        expire_ids([r["id"] for r in rows])
+        print(f"✅ знято за віком {len(rows)} (status=expired)")
+    else:
+        print("(dry-run) додай --apply, щоб зняти старі")
+
+
 def main() -> None:
+    if STALE_DAYS is not None:
+        sweep_stale(STALE_DAYS)
+
     rows = (
         sb.table("listings").select("id,url,source,title")
         .in_("source", ["olx", "dimria"]).eq("status", "active")
         .limit(LIMIT).execute().data
     )
-    print(f"перевіряю {len(rows)} активних olx/dimria-оголошень…\n")
+    print(f"перевіряю {len(rows)} активних olx/dimria-оголошень за URL…\n")
 
     dead: list[tuple[dict, str]] = []
     for r in rows:
@@ -73,10 +111,8 @@ def main() -> None:
         return
 
     if APPLY:
-        ids = [r["id"] for r, _ in dead]
-        for i in range(0, len(ids), 50):
-            sb.table("listings").update({"status": "expired"}).in_("id", ids[i:i + 50]).execute()
-        print(f"✅ знято {len(ids)} (status=expired)")
+        expire_ids([r["id"] for r, _ in dead])
+        print(f"✅ знято {len(dead)} (status=expired)")
     else:
         print("(dry-run) додай --apply, щоб зняти їх із каталогу")
 

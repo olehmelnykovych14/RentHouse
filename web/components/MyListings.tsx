@@ -1,9 +1,14 @@
+"use client";
+
 import Link from "next/link";
-import { formatPrice } from "@/lib/format";
+import { useState } from "react";
+import { formatPrice, listingTitle } from "@/lib/format";
+import { setListingStatus } from "@/app/cabinet/listing-actions";
 
 export type MyListing = {
   id: string;
   title: string | null;
+  clean_description?: string | null;
   city: string | null;
   district: string | null;
   price: number | null;
@@ -24,6 +29,18 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 };
 
 export default function MyListings({ listings }: { listings: MyListing[] }) {
+  const [items, setItems] = useState(listings);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function change(id: string, status: "rented" | "active") {
+    setBusy(id);
+    const res = await setListingStatus(id, status);
+    setBusy(null);
+    if (res.ok) {
+      setItems((xs) => xs.map((x) => (x.id === id ? { ...x, status } : x)));
+    }
+  }
+
   return (
     <section className="bg-surface-container-lowest border border-surface-variant rounded-xl p-6">
       <div className="flex items-center justify-between gap-4 mb-4">
@@ -40,20 +57,18 @@ export default function MyListings({ listings }: { listings: MyListing[] }) {
         </Link>
       </div>
 
-      {listings.length === 0 ? (
+      {items.length === 0 ? (
         <p className="font-body-md text-body-md text-on-surface-variant py-4">
           Ви ще не розміщували оголошень. Здаєте квартиру? Опублікуйте її — без комісії та посередників.
         </p>
       ) : (
         <ul className="divide-y divide-surface-variant">
-          {listings.map((l) => {
+          {items.map((l) => {
             const st = STATUS[l.status ?? ""] ?? STATUS.pending;
             const cover = l.photos?.[0];
             const place = [l.district, l.city].filter(Boolean).join(", ") || "—";
-            // На модерації сторінки деталей ще немає (її показує лише каталог
-            // після схвалення), тож клікабельні тільки опубліковані.
-            const inner = (
-              <>
+            return (
+              <li key={l.id} className="py-3 flex items-center gap-3">
                 <div className="w-14 h-14 rounded-lg overflow-hidden bg-surface-container-high shrink-0">
                   {cover ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -64,12 +79,41 @@ export default function MyListings({ listings }: { listings: MyListing[] }) {
                     </span>
                   )}
                 </div>
+
                 <div className="min-w-0 flex-grow">
-                  <p className="font-label-md text-label-md text-on-surface truncate">
-                    {l.title || "Оголошення"}
-                  </p>
+                  {l.status === "active" ? (
+                    <Link href={`/listings/${l.id}`} className="font-label-md text-label-md text-on-surface truncate block hover:text-primary transition-colors">
+                      {listingTitle(l.title, l.clean_description)}
+                    </Link>
+                  ) : (
+                    <p className="font-label-md text-label-md text-on-surface truncate">
+                      {listingTitle(l.title, l.clean_description)}
+                    </p>
+                  )}
                   <p className="font-body-sm text-body-sm text-on-surface-variant truncate">{place}</p>
+                  {/* Дії власника: позначити зданою / повернути в каталог */}
+                  {l.status === "active" && (
+                    <button
+                      onClick={() => change(l.id, "rented")}
+                      disabled={busy === l.id}
+                      className="mt-1 inline-flex items-center gap-1 font-caption text-caption text-on-surface-variant hover:text-primary disabled:opacity-50 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">task_alt</span>
+                      {busy === l.id ? "…" : "Позначити зданою"}
+                    </button>
+                  )}
+                  {l.status === "rented" && (
+                    <button
+                      onClick={() => change(l.id, "active")}
+                      disabled={busy === l.id}
+                      className="mt-1 inline-flex items-center gap-1 font-caption text-caption text-on-surface-variant hover:text-primary disabled:opacity-50 transition-colors"
+                    >
+                      <span className="material-symbols-outlined text-[14px]">undo</span>
+                      {busy === l.id ? "…" : "Повернути в каталог"}
+                    </button>
+                  )}
                 </div>
+
                 <div className="text-right shrink-0">
                   <p className="font-label-md text-label-md text-on-surface">
                     {formatPrice(l.price, l.currency)}
@@ -78,17 +122,6 @@ export default function MyListings({ listings }: { listings: MyListing[] }) {
                     {st.label}
                   </span>
                 </div>
-              </>
-            );
-            return (
-              <li key={l.id}>
-                {l.status === "active" ? (
-                  <Link href={`/listings/${l.id}`} className="flex items-center gap-3 py-3 hover:opacity-80 transition-opacity">
-                    {inner}
-                  </Link>
-                ) : (
-                  <div className="flex items-center gap-3 py-3">{inner}</div>
-                )}
               </li>
             );
           })}
