@@ -275,6 +275,33 @@ export async function getFavoriteListings(): Promise<Listing[]> {
   return (data as unknown as Listing[]) ?? [];
 }
 
+/**
+ * Медіана ціни (грн) схожих оголошень у місті — база для сигналу «дешевше за
+ * ринок». null, якщо порівнянних менше 5 (мала вибірка ненадійна).
+ */
+export async function getMedianPrice(
+  city: string | null,
+  rooms: number | null
+): Promise<number | null> {
+  const supabase = createSupabaseServer();
+  if (!supabase || !city) return null;
+  let q = supabase
+    .from("listings_public")
+    .select("price_uah")
+    .in("listing_type", CATALOG_TYPES)
+    .eq("city", city)
+    .not("price_uah", "is", null);
+  if (rooms != null) q = q.eq("rooms", rooms);
+  const { data } = await q.limit(500);
+  const prices = (data ?? [])
+    .map((r: { price_uah: number | null }) => r.price_uah)
+    .filter((n): n is number => typeof n === "number" && n > 0)
+    .sort((a, b) => a - b);
+  if (prices.length < 5) return null;
+  const mid = Math.floor(prices.length / 2);
+  return prices.length % 2 ? prices[mid] : Math.round((prices[mid - 1] + prices[mid]) / 2);
+}
+
 const DETAIL_COLS =
   SELECT_COLS +
   ",floor,total_floors,has_furniture,lat,lng,clean_description,seller_contact,original_url,source";

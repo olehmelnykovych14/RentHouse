@@ -2,8 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { getListingById, getFavoriteIds } from "@/lib/listings";
+import { getListingById, getFavoriteIds, getMedianPrice } from "@/lib/listings";
 import { formatPrice, listingTitle, relativeDate } from "@/lib/format";
+import { riskFlags } from "@/lib/risk";
 import PhotoGallery from "@/components/PhotoGallery";
 import FavoriteButton from "@/components/FavoriteButton";
 
@@ -19,6 +20,12 @@ export async function generateMetadata({ params }: { params: { id: string } }) {
 export default async function ListingDetailPage({ params }: { params: { id: string } }) {
   const [listing, favIds] = await Promise.all([getListingById(params.id), getFavoriteIds()]);
   if (!listing) notFound();
+
+  // Мітки ризику: текст опису + «дешевше за ринок» (нижче 60% медіани по місту).
+  const median = await getMedianPrice(listing.city, listing.rooms);
+  const belowMarket =
+    median != null && listing.price_uah != null && listing.price_uah < median * 0.6;
+  const flags = riskFlags(listing.clean_description, { belowMarket });
 
   const photos = listing.photos ?? [];
   const isOwner = listing.listing_type === "owner";
@@ -97,6 +104,36 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
               <Stat icon="meeting_room" label="Кімнати" value={listing.rooms ? String(listing.rooms) : "—"} />
               <Stat icon="stairs" label="Поверх" value={floorText} />
             </div>
+
+            {/* На що звернути увагу — мітки ризику */}
+            {flags.length > 0 && (
+              <section className="bg-error-container/30 border border-error/20 rounded-xl p-5">
+                <h2 className="font-headline-sm text-title-md text-error flex items-center gap-2 mb-3">
+                  <span className="material-symbols-outlined text-[20px]">gpp_maybe</span>
+                  На що звернути увагу ({flags.length})
+                </h2>
+                <ul className="space-y-3">
+                  {flags.map((f, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span
+                        className={`material-symbols-outlined text-[18px] shrink-0 ${
+                          f.high ? "text-error" : "text-tertiary"
+                        }`}
+                      >
+                        {f.high ? "warning" : "info"}
+                      </span>
+                      <span>
+                        <span className="font-label-md text-label-md text-on-surface">{f.label}.</span>{" "}
+                        <span className="font-body-sm text-body-sm text-on-surface-variant">{f.detail}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="font-caption text-caption text-on-surface-variant mt-3">
+                  Це автоматична підказка за текстом і ціною, а не вирок. Перевіряйте квартиру особисто.
+                </p>
+              </section>
+            )}
 
             {/* Description */}
             <section>
