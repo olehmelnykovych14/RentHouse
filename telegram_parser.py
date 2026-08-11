@@ -8,6 +8,7 @@ from supabase import create_client
 import requests
 
 import owner_detection
+import listing_fields
 
 try:
     import config
@@ -63,15 +64,18 @@ def to_uah(price, currency):
 # продаж і на рівні поста, але гнати тисячі оголошень про продаж через AI —
 # це витрачені гроші й ризик, що щось прослизне.
 # Свідомо ВИКЛЮЧЕНІ (продаж): nerukhomist_prodazh_lviv, prodaglvivkvarturu.
-SEED_CHANNELS = [
-    'orendakvarturlviv',
-    'lviv_neruhomist',
-    'orendakvartyr_ua',
-    'neruhomist_lviv_ua',
-    'Orenda_Lviv_U',
-    'lvivska_neruhomist',
-    'direct_rent',
-    'lvivnerucho',
+# Місто на канал важливе: без нього оголошення отримує запасне CITY='Львів',
+# тож канал іншого міста наповнював би Львів. None = канал загальний по Україні,
+# місто визначається з тексту оголошення.
+SEED_CHANNELS: list[dict] = [
+    {"id": "orendakvarturlviv", "city": "Львів"},
+    {"id": "lviv_neruhomist", "city": "Львів"},
+    {"id": "neruhomist_lviv_ua", "city": "Львів"},
+    {"id": "Orenda_Lviv_U", "city": "Львів"},
+    {"id": "lvivska_neruhomist", "city": "Львів"},
+    {"id": "lvivnerucho", "city": "Львів"},
+    {"id": "orendakvartyr_ua", "city": None},   # загальноукраїнський
+    {"id": "direct_rent", "city": None},        # загальноукраїнський
 ]
 
 # --- [ІНІЦІАЛІЗАЦІЯ] ---
@@ -190,13 +194,19 @@ def seed_channels_to_db() -> None:
     if supabase is None:
         return
     rows = [
-        {"platform": "telegram", "identifier": ch, "status": "active", "source": "seed"}
+        {"platform": "telegram", "identifier": ch["id"], "city": ch["city"],
+         "status": "active", "source": "seed"}
         for ch in SEED_CHANNELS
     ]
     try:
+        # ignore_duplicates лишає наявні рядки як є, тож місто в старих записах
+        # (де воно було null) не оновиться — доганяємо окремим update.
         supabase.table("channel_sources").upsert(
             rows, on_conflict="platform,identifier", ignore_duplicates=True
         ).execute()
+        for ch in SEED_CHANNELS:
+            if ch["city"]:
+                supabase.table("channel_sources").update({"city": ch["city"]})                     .eq("platform", "telegram").eq("identifier", ch["id"])                     .is_("city", "null").execute()
     except Exception as e:
         print(f"⚠️ Не вдалось залити сід-канали: {e}")
 
@@ -211,7 +221,7 @@ def load_active_channels() -> list[str]:
     Fallback — сід-список, якщо БД порожня/недоступна.
     """
     if supabase is None:
-        return SEED_CHANNELS
+        return [c["id"] for c in SEED_CHANNELS]
     try:
         resp = (
             supabase.table("channel_sources")
@@ -225,10 +235,10 @@ def load_active_channels() -> list[str]:
             if r.get("city"):
                 CHANNEL_CITY[r["identifier"].lstrip("@").lower()] = r["city"]
         channels = [r["identifier"] for r in rows]
-        return channels or SEED_CHANNELS
+        return channels or [c["id"] for c in SEED_CHANNELS]
     except Exception as e:
         print(f"⚠️ Не вдалось завантажити канали з БД ({e}), використовую сід-список")
-        return SEED_CHANNELS
+        return [c["id"] for c in SEED_CHANNELS]
 
 
 def discover_channels_from_text(text: str) -> None:
@@ -379,6 +389,9 @@ def upsert_listing_to_supabase(extraction: dict, external_id: str, url: str, raw
         "probability_of_owner": extraction["probability_of_owner"],
         "ai_reasoning": extraction.get("reasoning", ""),
     }
+    # Те саме, що в OLX: дозаповнюємо з тексту поля, які модель лишила null,
+    # інакше фільтри каталогу мовчки відкидають ці оголошення.
+    row = listing_fields.enrich(row, raw_text)
     try:
         supabase.table("listings").upsert(row, on_conflict="source,external_id").execute()
     except Exception as e:

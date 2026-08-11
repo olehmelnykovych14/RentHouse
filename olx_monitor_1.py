@@ -19,6 +19,7 @@ from openai import OpenAI
 from supabase import create_client
 
 import owner_detection
+import listing_fields
 
 try:
     import config
@@ -81,7 +82,7 @@ SEEN_ADS_FILE  = Path("seen_ads.json")
 MIN_OWNER_PROB = 70   # Мінімальний % щоб відправити в Telegram
 
 # Пагінація
-MAX_PAGES = 3                    # Скільки сторінок сканувати (1–N)
+MAX_PAGES = 10                    # Скільки сторінок сканувати (1–N)
 PAUSE_BETWEEN_PAGES = (5, 12)   # Пауза між сторінками (секунди)
 
 # Інтервали (секунди)
@@ -710,6 +711,10 @@ def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str, photos: l
         "ai_reasoning": extraction.get("reasoning", ""),
         "seller_name": ad["seller_name"],
     }
+    # Модель часто лишає ці поля null навіть коли вони є в тексті (площа —
+    # у 64% оголошень, поверх — у 54%), а без них фільтри каталогу мовчки
+    # відкидають оголошення. Регулярки дозаповнюють лише порожні.
+    row = listing_fields.enrich(row, f"{ad['title']} {ad['description']}")
     try:
         supabase.table("listings").upsert(row, on_conflict="source,external_id").execute()
     except Exception as e:

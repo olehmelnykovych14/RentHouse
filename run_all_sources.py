@@ -26,7 +26,7 @@ def snapshot() -> Counter:
     return Counter((r["source"], r["listing_type"]) for r in rows)
 
 
-def run_dimria(pages: int = 2):
+def run_dimria(pages: int = 10):
     import dimria_monitor as dm
 
     dm.MAX_PAGES = pages
@@ -43,7 +43,7 @@ def run_dimria(pages: int = 2):
     dm.save_seen_ads(seen)
 
 
-def run_olx(pages: int = 1):
+def run_olx(pages: int = 10):
     import olx_monitor_1 as om
 
     om.MAX_PAGES = pages
@@ -63,7 +63,7 @@ def run_olx(pages: int = 1):
     om.save_seen_ads(seen)
 
 
-def run_telegram(limit: int = 40):
+def run_telegram(limit: int = 100):
     import asyncio
     import telegram_backfill as tb
 

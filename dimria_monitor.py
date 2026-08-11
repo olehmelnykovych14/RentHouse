@@ -26,6 +26,8 @@ from pathlib import Path
 import requests
 from supabase import create_client
 
+import listing_fields
+
 try:
     import config
 except ImportError:
@@ -78,7 +80,7 @@ SEARCH_PARAMS = {
 }
 
 SEEN_ADS_FILE = Path("seen_ads_dimria.json")
-MAX_PAGES = 3
+MAX_PAGES = 10
 
 PAUSE_BETWEEN_REQUESTS = (4, 9)
 CYCLE_PAUSE = (300, 480)
@@ -301,7 +303,7 @@ def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
     rooms = realty.get("rooms_count")
     district = realty.get("district_name_uk") or realty.get("district_name")
 
-    return {
+    row = {
         "source": "dimria",
         "external_id": str(realty.get("realty_id")),
         "url": realty.get("absoluteUrl") or DETAIL_URL_TMPL.format(realty.get("realty_id")),
@@ -345,6 +347,11 @@ def map_realty_to_row(realty: dict, photos: list[str]) -> dict:
         ),
         "seller_name": "",
     }
+    # dom.ria не має структурованого поля для меблів — воно згадується лише в
+    # описі, тож без цього кроку has_furniture лишався None у 100% рядків і
+    # фільтр «мебльована» показував майже порожній каталог. Площу й поверх
+    # API віддає, тож enrich їх не чіпає.
+    return listing_fields.enrich(row, description)
 
 
 # ─────────────────────────────────────────────
