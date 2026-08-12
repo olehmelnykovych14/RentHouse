@@ -88,6 +88,37 @@ def parse_floor(text: str | None) -> tuple[int | None, int | None]:
     return None, None
 
 
+# Український мобільний у будь-якому вигляді: 0631234567, +380631234567,
+# 380 63 123 45 67, (063) 123-45-67. Обмежуємось мобільними кодами — міські
+# в оголошеннях оренди майже не трапляються, зате 5-значні числа в тексті
+# (площа, ціна) інакше давали б хибні збіги.
+_PHONE = re.compile(
+    r"(?:\+?38)?[\s\-.]?\(?0(39|50|63|66|67|68|73|91|92|93|94|95|96|97|98|99)\)?"
+    r"[\s\-.]?(\d{3})[\s\-.]?(\d{2})[\s\-.]?(\d{2})"
+)
+# @username Telegram. 5+ символів, щоб не чіпляти @ok чи хвіст пошти.
+_TG_USER = re.compile(r"(?<![\w@./])@([A-Za-z][A-Za-z0-9_]{4,31})\b")
+
+
+def parse_contact(text: str | None) -> str | None:
+    """
+    Контакт продавця з тексту: телефон у форматі +380XXXXXXXXX або @username.
+
+    Телефон має пріоритет — за ним дзвонять; @username беремо лише коли
+    номера немає. Без цього контакт лишався порожнім у 100% оголошень, і
+    підписка відкривала порожнє поле.
+    """
+    if not text:
+        return None
+    m = _PHONE.search(text)
+    if m:
+        return f"+380{m.group(1)}{m.group(2)}{m.group(3)}{m.group(4)}"
+    m = _TG_USER.search(text)
+    if m:
+        return f"@{m.group(1)}"
+    return None
+
+
 def enrich(row: dict, text: str | None) -> dict:
     """
     Дозаповнює порожні поля рядка з тексту. Не перезаписує вже наявні значення:
@@ -103,4 +134,6 @@ def enrich(row: dict, text: str | None) -> dict:
             row["floor"] = fl
         if row.get("total_floors") is None:
             row["total_floors"] = total
+    if not row.get("seller_contact"):
+        row["seller_contact"] = parse_contact(text)
     return row

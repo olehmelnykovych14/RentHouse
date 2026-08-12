@@ -34,6 +34,9 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
   const verified = listing.owner_verified === true;
   // Підписник: listings_public віддає original_url лише йому → це і є ознака доступу.
   const unlocked = !!listing.original_url;
+  // Для не-підписника view маскує номер, але з порожнього seller_contact
+  // маска дає порожній рядок — отже це і є ознака «контакту немає взагалі».
+  const hasContact = Boolean(listing.seller_contact && listing.seller_contact.trim());
   const floorText =
     listing.floor && listing.total_floors
       ? `${listing.floor} / ${listing.total_floors}`
@@ -210,15 +213,30 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
                 </div>
               </div>
 
+              {/* Показуємо телефон ЛИШЕ там, де він справді є. Раніше тут
+                  завжди стояла маска «+380 (••) •••-••-••», тож підписка
+                  обіцяла номер навіть для оголошень, де його немає (dom.ria
+                  і OLX ховають телефон за своїм віджетом) — і після оплати
+                  людина бачила порожнє поле. */}
               <div className="mb-6 pb-6 border-b border-surface-variant">
                 <div className="flex items-center gap-2 text-on-background font-label-md text-label-md mb-1">
-                  <span className="material-symbols-outlined text-[18px] text-primary">call</span>
-                  {unlocked ? listing.seller_contact || "Контакт — в оригіналі" : "+380 (••) •••-••-••"}
+                  <span className="material-symbols-outlined text-[18px] text-primary">
+                    {hasContact ? "call" : "link"}
+                  </span>
+                  {hasContact
+                    ? unlocked
+                      ? listing.seller_contact
+                      : "+380 (••) •••-••-••"
+                    : "Контакт — в оригіналі оголошення"}
                 </div>
                 <p className="font-caption text-caption text-on-surface-variant">
-                  {unlocked
-                    ? "Прямий контакт без комісії посередника."
-                    : "Оформіть Premium, щоб відкрити прямий контакт власника без комісії."}
+                  {hasContact
+                    ? unlocked
+                      ? "Прямий контакт без комісії посередника."
+                      : "Оформіть Premium, щоб відкрити прямий контакт власника без комісії."
+                    : unlocked
+                      ? "Тут номер не публікується — відкрийте оригінал і зв'яжіться напряму."
+                      : "Джерело не публікує номер у тексті. Premium відкриває посилання на оригінал."}
                 </p>
               </div>
 

@@ -50,5 +50,21 @@ check("enrich заповнює порожні",
       (row2["has_furniture"], row2["area_sqm"], row2["floor"], row2["total_floors"]),
       (True, 48.0, 6, 9))
 
+# ── контакт ──
+check("простий 0XX", lf.parse_contact("Телефонуйте 0638772326"), "+380638772326")
+check("з +380", lf.parse_contact("+380951184377"), "+380951184377")
+check("з пробілами", lf.parse_contact("тел: 063 877 23 26"), "+380638772326")
+check("з дужками", lf.parse_contact("(096) 640-07-58"), "+380966400758")
+check("380 без плюса", lf.parse_contact("380932034329"), "+380932034329")
+check("@username", lf.parse_contact("Пишіть на телеграм: @oks_leshchuk"), "@oks_leshchuk")
+check("телефон > username", lf.parse_contact("@agent_lviv або 0638772326"), "+380638772326")
+check("немає контакту", lf.parse_contact("Затишна квартира біля парку"), None)
+check("не ловить площу/ціну", lf.parse_contact("Площа 65 м², ціна 15000 грн"), None)
+check("не ловить пошту", lf.parse_contact("пишіть на mail@example.com"), None)
+
+row3 = {"seller_contact": "+380501112233"}
+lf.enrich(row3, "інший номер 0638772326")
+check("enrich не перезаписує контакт", row3["seller_contact"], "+380501112233")
+
 print(f"\n{passed} passed, {failed} failed")
 raise SystemExit(1 if failed else 0)
