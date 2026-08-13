@@ -7,6 +7,7 @@ import type { Listing } from "@/lib/listings";
 import { isLocked } from "@/lib/listing-view";
 import { formatPrice, listingTitle, relativeDate } from "@/lib/format";
 import FavoriteButton from "./FavoriteButton";
+import { DirectContactBadge } from "./ContactActions";
 
 export default function CatalogCard({
   listing,
@@ -150,12 +151,15 @@ export default function CatalogCard({
           )}
         </p>
 
-        <div className="flex flex-wrap gap-2 mb-6 mt-auto">
+        <div className="flex flex-wrap gap-2 mb-6 mt-auto items-center">
           {tags.map((t) => (
             <span key={t} className="bg-surface-container-low px-2 py-1 rounded text-on-surface-variant font-caption text-caption">
               {t}
             </span>
           ))}
+          {/* Номер у тексті є не в кожному джерелі — показуємо, де можна
+              подзвонити одразу, а де доведеться йти в оригінал. */}
+          {listing.seller_contact?.trim() && <DirectContactBadge />}
         </div>
 
         {/* Платним лишається КОНТАКТ, а не оголошення: фото, ціна й адреса

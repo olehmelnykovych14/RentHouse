@@ -8,6 +8,7 @@ import { riskFlags } from "@/lib/risk";
 import PhotoGallery from "@/components/PhotoGallery";
 import FavoriteButton from "@/components/FavoriteButton";
 import ReportButton from "@/components/ReportButton";
+import ContactActions from "@/components/ContactActions";
 
 export const dynamic = "force-dynamic";
 
@@ -241,7 +242,11 @@ export default async function ListingDetailPage({ params }: { params: { id: stri
               </div>
 
               <div className="flex flex-col gap-3">
-                {unlocked && listing.original_url ? (
+                {/* Є номер і доступ — даємо одразу подзвонити чи написати,
+                    щоб не переписувати цифри вручну. */}
+                {unlocked && hasContact ? (
+                  <ContactActions contact={listing.seller_contact!} />
+                ) : unlocked && listing.original_url ? (
                   <a
                     href={listing.original_url}
                     target="_blank"

@@ -82,6 +82,23 @@ export default function FilterSidebar({ filters }: { filters: ListingFilters }) 
             </div>
           </div>
 
+          {/* Окремо від «Зручностей»: це не про квартиру, а про те, чи можна
+              подзвонити одразу — частина джерел не публікує номер у тексті. */}
+          <div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                name="direct_contact"
+                defaultChecked={!!filters.direct_contact}
+                className="rounded border-outline-variant/50 text-primary focus:ring-primary"
+              />
+              <span className="font-label-md text-label-md text-on-surface">Лише з прямим контактом</span>
+            </label>
+            <p className="font-caption text-caption text-on-surface-variant mt-1 ml-6">
+              Номер власника вказано в оголошенні — можна телефонувати одразу.
+            </p>
+          </div>
+
           <div>
             <label className="block font-label-md text-label-md text-on-surface mb-2">Зручності</label>
             <div className="space-y-2">

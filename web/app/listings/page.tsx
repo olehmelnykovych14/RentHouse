@@ -34,6 +34,7 @@ function toFilters(sp: SearchParams): ListingFilters {
     area_min: one(sp.area_min),
     area_max: one(sp.area_max),
     furnished: one(sp.furnished),
+    direct_contact: one(sp.direct_contact),
   };
 }
 

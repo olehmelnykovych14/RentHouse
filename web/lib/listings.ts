@@ -44,7 +44,10 @@ export type Listing = {
 const CATALOG_TYPES = ["owner", "agency_no_fee"];
 
 const SELECT_COLS =
-  "id,title,price,currency,price_uah,rooms,district,city,area_sqm,property_type,residential_complex,listing_type,owner_verified,commission,commission_verified,probability_of_owner,photos,created_at,lat,lng,clean_description";
+  // seller_contact потрібен і в каталозі — для мітки «прямий контакт». Для
+  // неоплаченого доступу view віддає його замаскованим, тож у картці це лише
+  // ознака «номер існує», а не сам номер.
+  "id,title,price,currency,price_uah,rooms,district,city,area_sqm,property_type,residential_complex,listing_type,owner_verified,commission,commission_verified,probability_of_owner,photos,created_at,lat,lng,clean_description,seller_contact";
 
 // Мок-дані для розробки, поки Supabase не підключено (з дизайну Stitch).
 const MOCK_LISTINGS: Listing[] = [
@@ -112,6 +115,8 @@ export type ListingFilters = {
   area_min?: string;
   area_max?: string;
   furnished?: string;
+  /** 'on' — показувати лише оголошення з номером у тексті. */
+  direct_contact?: string;
 };
 
 /**
@@ -142,6 +147,11 @@ function applyCatalogFilters(query: any, f: ListingFilters, includeCity: boolean
   else if (num(f.rooms) !== undefined) query = query.eq("rooms", num(f.rooms));
   if (num(f.floor) !== undefined) query = query.eq("floor", num(f.floor));
   if (f.furnished === "on" || f.furnished === "true") query = query.eq("has_furniture", true);
+  // Номер у тексті є не завжди: дошки ховають його за своїм віджетом. Хто
+  // хоче дзвонити одразу — фільтрує лише такі оголошення.
+  if (f.direct_contact === "on" || f.direct_contact === "true") {
+    query = query.not("seller_contact", "is", null).neq("seller_contact", "");
+  }
   if (f.q) query = query.or(`district.ilike.%${f.q}%,city.ilike.%${f.q}%`);
   return query;
 }
