@@ -18,6 +18,9 @@ from bs4 import BeautifulSoup
 from openai import OpenAI
 from supabase import create_client
 
+import owner_detection
+import listing_fields
+
 try:
     import config
 except ImportError:
@@ -44,17 +47,42 @@ SUPABASE_URL = get_secret("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = get_secret("SUPABASE_SERVICE_KEY")
 
 # URL-и для моніторингу (продаж + оренда квартир у Львові — змініть під своє місто)
-MONITOR_URLS = [
-    "https://www.olx.ua/uk/nedvizhimost/kvartiry/dolgosrochnaya-arenda-kvartir/lvov/?search%5Bdistrict_id%5D=135&currency=UAH",
-    "https://www.olx.ua/uk/nedvizhimost/kvartiry/dolgosrochnaya-arenda-kvartir/lvov/?search%5Bdistrict_id%5D=135&currency=USD"
+OLX_BASE = "https://www.olx.ua/uk/nedvizhimost/kvartiry/dolgosrochnaya-arenda-kvartir"
+
+# Міста для моніторингу. Місто береться з джерела й пишеться в рядок оголошення.
+MONITOR_SOURCES = [
+    {"city": "Київ", "url": f"{OLX_BASE}/kiev/"},
+    {"city": "Львів", "url": f"{OLX_BASE}/lvov/"},
+    {"city": "Одеса", "url": f"{OLX_BASE}/odessa/"},
+    {"city": "Дніпро", "url": f"{OLX_BASE}/dnepr/"},
+    {"city": "Харків", "url": f"{OLX_BASE}/harkov/"},
+    {"city": "Вінниця", "url": f"{OLX_BASE}/vinnica/"},
+    {"city": "Тернопіль", "url": f"{OLX_BASE}/ternopol/"},
+    {"city": "Івано-Франківськ", "url": f"{OLX_BASE}/ivano-frankovsk/"},
+    {"city": "Запоріжжя", "url": f"{OLX_BASE}/zaporozhe/"},
+    {"city": "Полтава", "url": f"{OLX_BASE}/poltava/"},
 ]
-CITY = "Львів"
+
+CITY = "Львів"   # запасне значення, якщо джерело не вказало місто
+
+SUPABASE_BUCKET = "listing-photos"   # публічний bucket у Supabase Storage
+MAX_PHOTOS      = 15                  # скільки фото зберігати на оголошення
+
+# Приблизні курси для нормалізації ціни в гривні (для фільтрів/сортування).
+FX_TO_UAH = {"UAH": 1, "USD": 41, "EUR": 44}
+
+
+def to_uah(price, currency) -> int | None:
+    if price is None:
+        return None
+    rate = FX_TO_UAH.get((currency or "UAH").upper())
+    return round(price * rate) if rate else None
 
 SEEN_ADS_FILE  = Path("seen_ads.json")
 MIN_OWNER_PROB = 70   # Мінімальний % щоб відправити в Telegram
 
 # Пагінація
-MAX_PAGES = 3                    # Скільки сторінок сканувати (1–N)
+MAX_PAGES = 10                    # Скільки сторінок сканувати (1–N)
 PAUSE_BETWEEN_PAGES = (5, 12)   # Пауза між сторінками (секунди)
 
 # Інтервали (секунди)
@@ -285,8 +313,14 @@ def fetch_ad_details(session: requests.Session, ad_url: str) -> dict | None:
     )
     seller_name = seller_tag.get_text(strip=True) if seller_tag else ""
 
-    # Кількість оголошень автора
+    # Кількість оголошень автора (None = на сторінці немає)
     other_ads_count = _extract_seller_ads_count(soup)
+
+    # Пряма мітка OLX: бізнес-акаунт чи приватна особа
+    is_business = parse_is_business(resp.text)
+
+    # Фото оголошення (сирі URL з CDN OLX)
+    photo_urls = _extract_photo_urls(soup, resp.text)
 
     # Дата реєстрації продавця (якщо є)
     reg_date = ""
@@ -302,24 +336,103 @@ def fetch_ad_details(session: requests.Session, ad_url: str) -> dict | None:
         "description": description,
         "seller_name": seller_name,
         "seller_ads_count": other_ads_count,
+        "is_business": is_business,
         "reg_date": reg_date,
+        "photo_urls": photo_urls,
     }
 
 
-def _extract_seller_ads_count(soup: BeautifulSoup) -> int:
-    """Витягує кількість активних оголошень продавця."""
-    patterns = [
-        r"(\d+)\s*оголошень",
-        r"(\d+)\s*оголош",
-        r"Усі оголошення.*?(\d+)",
-        r"(\d+)\s*активн",
-    ]
+# Фото в стані сторінки OLX: ireland.apollo.olxcdn.com[:443]/v1/files/<hash>/image;s=WxH
+_OLX_PHOTO_RE = re.compile(
+    r"https://ireland\.apollo\.olxcdn\.com(?::\d+)?/v1/files/([A-Za-z0-9\-]+)/image;s=\d+x\d+"
+)
+
+
+def _extract_photo_urls(soup: BeautifulSoup, html: str = "") -> list[str]:
+    """
+    Усі фото оголошення (до MAX_PHOTOS, без дублів).
+
+    OLX вантажить галерею через JS, тож у статичному HTML її нема — раніше звідси
+    виходило лише 1 фото (og:image). Але всі фото лежать у вбудованому стані
+    сторінки як ireland.apollo.olxcdn.com/v1/files/<hash>/image;s={width}x{height}
+    (слеші в JSON екрановані як \\/). Беремо їх звідти, дедуп за хешем файла.
+    Резерв — стара swiper-галерея та og:image.
+    """
+    urls: list[str] = []
+
+    # 1) Основне: вбудований стан сторінки — тут усі фото.
+    if html:
+        seen: set[str] = set()
+        for m in _OLX_PHOTO_RE.finditer(html.replace("\\/", "/")):
+            h = m.group(1)
+            if h in seen:
+                continue
+            seen.add(h)
+            url = m.group(0).replace(":443", "")
+            url = re.sub(r"s=\d+x\d+", "s=1000x700", url)  # єдиний розмір
+            urls.append(url)
+            if len(urls) >= MAX_PHOTOS:
+                break
+    if urls:
+        return urls
+
+    # 2) Резерв: swiper-галерея (для сторінок зі старою розміткою).
+    candidates = (
+        soup.select('img[data-testid="swiper-image"]')
+        or soup.select(".swiper-slide img")
+        or soup.select('[data-cy="adPhotos-swiperSlide"] img')
+    )
+    for img in candidates:
+        src = ""
+        srcset = img.get("srcset")
+        if srcset:
+            src = srcset.split(",")[-1].strip().split(" ")[0]
+        if not src:
+            src = img.get("src", "")
+        if src.startswith("http") and ("olxcdn" in src or "apollo" in src) and src not in urls:
+            urls.append(src)
+
+    # 3) Останній резерв: og:image.
+    if not urls:
+        for meta in soup.select('meta[property="og:image"]'):
+            src = meta.get("content", "")
+            if src.startswith("http") and src not in urls:
+                urls.append(src)
+
+    return urls[:MAX_PHOTOS]
+
+
+def _extract_seller_ads_count(soup: BeautifulSoup) -> int | None:
+    """
+    Кількість активних оголошень продавця, або None якщо її на сторінці немає.
+
+    ВАЖЛИВО: None ≠ 0. Раніше функція повертала 0 при невдачі, і через це
+    `0 > MAX_ACTIVE_LISTINGS` ніколи не спрацьовувало — бан за кількістю
+    оголошень мовчки пропускав усіх, а в промпт AI йшло «активних оголошень: 0»,
+    що робило будь-якого ріелтора схожим на власника з єдиним оголошенням.
+    Сторінка оголошення зазвичай числа НЕ містить (лише лінк «Усі оголошення автора»).
+    """
     text = soup.get_text(" ")
-    for pat in patterns:
+    for pat in (r"(\d+)\s*оголошен", r"(\d+)\s*активн"):
         m = re.search(pat, text, re.IGNORECASE)
         if m:
             return int(m.group(1))
-    return 0
+    return None
+
+
+# OLX сам позначає, чи акаунт бізнесовий. Це пряма заява джерела — надійніша
+# за будь-яке вгадування по тексту (те саме, що charId 1437 у dom.ria).
+_IS_BUSINESS_RE = re.compile(r'\\?"isBusiness\\?"\s*:\s*(true|false)')
+
+
+def parse_is_business(html: str) -> bool | None:
+    """True — бізнес-акаунт, False — приватна особа, None — сигналу немає."""
+    m = _IS_BUSINESS_RE.search(html or "")
+    if m:
+        return m.group(1) == "true"
+    if "Приватна особа" in (html or ""):
+        return False
+    return None
 
 
 # ─────────────────────────────────────────────
@@ -334,8 +447,13 @@ def level1_technical_ban(ad: dict) -> tuple[bool, str]:
         if substr.lower() in name_lower:
             return True, f"Назва профілю містить '{substr}'"
 
-    if ad["seller_ads_count"] > MAX_ACTIVE_LISTINGS:
-        return True, f"Забагато оголошень: {ad['seller_ads_count']} > {MAX_ACTIVE_LISTINGS}"
+    # Пряма мітка OLX має пріоритет над усіма здогадами.
+    if ad.get("is_business") is True:
+        return True, "OLX позначив акаунт як бізнес"
+
+    count = ad.get("seller_ads_count")
+    if count is not None and count > MAX_ACTIVE_LISTINGS:
+        return True, f"Забагато оголошень: {count} > {MAX_ACTIVE_LISTINGS}"
 
     return False, ""
 
@@ -362,7 +480,11 @@ LISTING_JSON_SCHEMA = {
     "strict": True,
     "schema": {
         "type": "object",
+        # Порядок полів = порядок генерації: спершу тип поста й цитати-докази,
+        # і лише потім число. Інакше модель ставила оцінку наосліп.
         "properties": {
+            **owner_detection.POST_TYPE_PROPERTY,
+            **owner_detection.SIGNAL_PROPERTIES,
             "probability_of_owner": {"type": "integer", "description": "0-100"},
             "reasoning": {"type": "string", "description": "Стисле пояснення до 150 слів"},
             "price": {"type": ["number", "null"]},
@@ -370,58 +492,111 @@ LISTING_JSON_SCHEMA = {
             "rooms": {"type": ["integer", "null"]},
             "district": {"type": ["string", "null"], "description": "Район міста, якщо згадується в тексті"},
             "has_furniture": {"type": ["boolean", "null"]},
+            "area_sqm": {"type": ["number", "null"], "description": "Площа в м², якщо вказана"},
+            "floor": {"type": ["integer", "null"], "description": "Поверх квартири"},
+            "total_floors": {"type": ["integer", "null"], "description": "Поверховість будинку"},
+            "property_type": {
+                "type": ["string", "null"],
+                "enum": ["apartment", "house", "room", "studio", None],
+                "description": "Тип житла",
+            },
+            "residential_complex": {"type": ["string", "null"], "description": "Назва ЖК, якщо згадується"},
+            "commission": {
+                "type": ["string", "null"],
+                "description": "Комісія посередника як у тексті: '0%', 'без комісії', '50%', '1000 грн'. null — не згадано",
+            },
             "clean_description": {
                 "type": "string",
                 "description": "Опис переписаний без рекламних штампів, посилань на агентство та закликів звертатись",
             },
         },
         "required": [
+            "post_type", "owner_signals", "realtor_signals",
             "probability_of_owner", "reasoning", "price", "currency",
-            "rooms", "district", "has_furniture", "clean_description",
+            "rooms", "district", "has_furniture", "area_sqm", "floor",
+            "total_floors", "property_type", "residential_complex", "commission", "clean_description",
         ],
         "additionalProperties": False,
     },
 }
 
 DEFAULT_EXTRACTION = {
-    "probability_of_owner": 50,
+    "post_type": "other",       # збій AI не має відкривати шлях у каталог
+    "owner_signals": [],
+    "realtor_signals": [],
+    "probability_of_owner": 0,  # було 50 — «майже власник» на порожньому місці
     "reasoning": "Не вдалось отримати оцінку AI",
     "price": None,
     "currency": None,
     "rooms": None,
     "district": None,
     "has_furniture": None,
+    "area_sqm": None,
+    "floor": None,
+    "total_floors": None,
+    "property_type": None,
+    "residential_complex": None,
+    "commission": None,
     "clean_description": "",
 }
+
+
+# Формулювання нульової комісії БЕЗ числа. Числові значення парсимо окремо:
+# підрядок "0%" зустрічається всередині "50%"/"100%", тому текстове порівняння
+# тут дало б катастрофічно хибний результат (50% → «без комісії»).
+# Тільки НЕчислові фрази — будь-які числа обробляє парсер нижче.
+NO_FEE_PHRASES = ["без комісі", "без комиси", "немає комісі", "нема комісі", "no commission"]
+EMPTY_VALUES = {"null", "none", "-", "не вказано", "не вказана"}
+AMOUNT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*(%|грн|uah|₴)", re.IGNORECASE)
+
+
+def classify(extraction: dict) -> tuple[str, str | None]:
+    """Повертає (listing_type, commission)."""
+    raw = (extraction.get("commission") or "").strip()
+    if raw.lower() in EMPTY_VALUES:
+        raw = ""
+    commission = raw or None
+
+    if extraction.get("probability_of_owner", 0) >= MIN_OWNER_PROB:
+        return "owner", commission
+
+    if commission:
+        low = commission.lower()
+        m = AMOUNT_RE.search(low)
+        if m:  # є число (% або грн) — вирішує воно, а не підрядок
+            amount = float(m.group(1).replace(",", "."))
+            return ("agency_no_fee" if amount == 0 else "agency"), commission
+        if any(p in low for p in NO_FEE_PHRASES):
+            return "agency_no_fee", commission
+    return "agency", commission
 
 
 def level3_ai_analysis(ad: dict) -> dict:
     """Повертає структурований словник з оцінкою власника та даними оголошення."""
 
-    system_prompt = """Ти — детектор посередників на ринку нерухомості України.
-Твоє завдання: визначити, чи є автор оголошення реальним власником квартири, чи замаскованим рієлтором/агентством,
-і витягнути структуровані дані з тексту оголошення.
+    system_prompt = owner_detection.build_system_prompt(
+        """Також витягни: ціну (число), валюту, кількість кімнат, район міста (якщо згаданий),
+чи є меблі, площу в м², поверх, поверховість будинку, тип житла (apartment/house/room/studio),
+назву ЖК (якщо є), КОМІСІЮ посередника як вона вказана в тексті ('0%', 'без комісії', '50%', або null
+якщо не згадано), і перепиши опис без рекламних штампів та закликів звертатись (clean_description).
 
-КРИТЕРІЇ ВЛАСНИКА (підвищують score):
-+ Побутові деталі: згадка сусідів, особистих спогадів, конкретних дрібниць ("балкон виходить на схід", "шафа залишається")
-+ Неформальний, трохи "незграбний" текст без глянцевих штампів
-+ Конкретна причина продажу ("переїжджаємо", "потрібні гроші на лікування")
-+ Один об'єкт, текст написаний від першої особи
+ТИП АКАУНТУ ЗА ДАНИМИ OLX — це заява самого майданчика, а не здогад. Якщо там
+«бізнес-акаунт», це realtor_signal незалежно від тексту. «Приватна особа» НЕ є
+доказом власності: посередники масово працюють з приватних акаунтів."""
+    )
 
-КРИТЕРІЇ РІЄЛТОРА (знижують score):
-- Рекламні штампи: "ідеальний варіант", "бізнес-клас", "продумано до дрібниць", "розвинута інфраструктура"
-- Надмірно структурований/шаблонний опис
-- Фраза "є ще варіанти" або посилання на інші об'єкти
-- Акцент на "чистоті угоди", юридичному супроводі
-- Запрошення на огляд у конкретний офіс
-
-Також витягни: ціну (число), валюту, кількість кімнат, район міста (якщо згаданий),
-чи є меблі, і перепиши опис без рекламних штампів та закликів звертатись (clean_description)."""
+    # «невідомо» замість 0: підставляти 0 при невідомій кількості означало
+    # підказувати моделі, що продавець має єдине оголошення (ознака власника).
+    count = ad.get("seller_ads_count")
+    ads_line = str(count) if count is not None else "невідомо"
+    business = ad.get("is_business")
+    business_line = {True: "бізнес-акаунт", False: "приватна особа"}.get(business, "невідомо")
 
     user_content = f"""Оголошення:
 НАЗВА: {ad['title']}
 ПРОДАВЕЦЬ: {ad['seller_name']}
-АКТИВНИХ ОГОЛОШЕНЬ: {ad['seller_ads_count']}
+ТИП АКАУНТУ ЗА ДАНИМИ OLX: {business_line}
+АКТИВНИХ ОГОЛОШЕНЬ: {ads_line}
 РЕЄСТРАЦІЯ: {ad['reg_date']}
 
 ОПИС:
@@ -439,7 +614,8 @@ def level3_ai_analysis(ad: dict) -> dict:
         )
         data = json.loads(response.choices[0].message.content)
         data["probability_of_owner"] = int(data.get("probability_of_owner", 0))
-        return data
+        # Докази мають пріоритет над числом, якщо вони суперечать одне одному.
+        return owner_detection.calibrate(data)
     except json.JSONDecodeError as e:
         log.warning(f"AI повернув невалідний JSON: {e}")
         return dict(DEFAULT_EXTRACTION)
@@ -452,9 +628,61 @@ def level3_ai_analysis(ad: dict) -> dict:
 # SUPABASE
 # ─────────────────────────────────────────────
 
-def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str) -> None:
+def upload_photos_to_storage(session: requests.Session, photo_urls: list[str], ad_id: str) -> list[str]:
+    """
+    Завантажує фото у Supabase Storage і повертає публічні URL.
+    Якщо Storage недоступний або завантаження впало — повертає сирі URL (фолбек).
+    """
+    if not photo_urls:
+        return []
+    if supabase is None:
+        return photo_urls
+
+    public_urls: list[str] = []
+    for i, url in enumerate(photo_urls[:MAX_PHOTOS]):
+        try:
+            resp = session.get(url, timeout=20)
+            resp.raise_for_status()
+            path = f"olx/{ad_id}/{i}.jpg"
+            supabase.storage.from_(SUPABASE_BUCKET).upload(
+                path,
+                resp.content,
+                {"content-type": "image/jpeg", "upsert": "true"},
+            )
+            public_urls.append(supabase.storage.from_(SUPABASE_BUCKET).get_public_url(path))
+        except Exception as e:
+            log.warning(f"  ⚠️ Фото {i} не завантажилось у Storage ({e}), лишаю сирий URL")
+            public_urls.append(url)
+    return public_urls
+
+
+# Місячна оренда в гривнях. Нижня межа відсіює ціну за добу й помилки парсингу,
+# верхня — оголошення про продаж, які прослизнули повз post_type.
+RENT_UAH_MIN = 1_500
+RENT_UAH_MAX = 300_000
+
+
+def reject_reason(extraction: dict) -> str | None:
+    """Чому оголошення не можна класти в каталог. None — можна."""
+    post_type = extraction.get("post_type", "other")
+    if post_type != "rent_offer":
+        return f"post_type={post_type}"
+    price_uah = to_uah(extraction.get("price"), extraction.get("currency"))
+    if price_uah is not None and not (RENT_UAH_MIN <= price_uah <= RENT_UAH_MAX):
+        return f"ціна поза межами оренди: {price_uah} грн"
+    return None
+
+
+def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str, photos: list[str], city: str | None = None) -> None:
     if supabase is None:
         return
+
+    reason = reject_reason(extraction)
+    if reason:
+        log.info(f"  ⏭️ Пропущено ({reason})")
+        return
+
+    listing_type, commission = classify(extraction)
 
     row = {
         "source": "olx",
@@ -465,14 +693,28 @@ def upsert_listing_to_supabase(ad: dict, extraction: dict, ad_id: str) -> None:
         "clean_description": extraction.get("clean_description", ""),
         "price": extraction.get("price"),
         "currency": extraction.get("currency"),
+        "price_uah": to_uah(extraction.get("price"), extraction.get("currency")),
         "rooms": extraction.get("rooms"),
         "district": extraction.get("district"),
-        "city": CITY,
+        "city": city or CITY,
         "has_furniture": extraction.get("has_furniture"),
+        "area_sqm": extraction.get("area_sqm"),
+        "floor": extraction.get("floor"),
+        "total_floors": extraction.get("total_floors"),
+        "property_type": extraction.get("property_type"),
+        "residential_complex": extraction.get("residential_complex"),
+        "listing_type": listing_type,
+        "commission": commission,
+        "commission_verified": False,
+        "photos": photos,
         "probability_of_owner": extraction["probability_of_owner"],
         "ai_reasoning": extraction.get("reasoning", ""),
         "seller_name": ad["seller_name"],
     }
+    # Модель часто лишає ці поля null навіть коли вони є в тексті (площа —
+    # у 64% оголошень, поверх — у 54%), а без них фільтри каталогу мовчки
+    # відкидають оголошення. Регулярки дозаповнюють лише порожні.
+    row = listing_fields.enrich(row, f"{ad['title']} {ad['description']}")
     try:
         supabase.table("listings").upsert(row, on_conflict="source,external_id").execute()
     except Exception as e:
@@ -569,9 +811,14 @@ def process_ad(session: requests.Session, ad_stub: dict, seen_ads: set) -> str |
     reasoning = extraction.get("reasoning", "")
     log.info(f"  📊 Ймовірність власника: {probability}%")
 
+    # Фото → Supabase Storage (повертає публічні URL або сирі як фолбек)
+    photos = upload_photos_to_storage(session, ad.get("photo_urls", []), ad_id)
+    if photos:
+        log.info(f"  🖼️ Фото: {len(photos)}")
+
     # Зберігаємо в Supabase все, що дійшло до AI-аналізу — поріг застосовується
     # на рівні фронтенду/запиту, а не на етапі збору даних.
-    upsert_listing_to_supabase(ad, extraction, ad_id)
+    upsert_listing_to_supabase(ad, extraction, ad_id, photos, ad_stub.get("city"))
 
     if probability >= MIN_OWNER_PROB:
         message = format_telegram_message(ad, probability, reasoning)
@@ -588,7 +835,7 @@ def process_ad(session: requests.Session, ad_stub: dict, seen_ads: set) -> str |
 def run_monitor():
     log.info("=" * 60)
     log.info("🏠 OLX Owner Detector — старт")
-    log.info(f"Мінімальний поріг: {MIN_OWNER_PROB}% | Сторінок: {MAX_PAGES} | URL-ів: {len(MONITOR_URLS)}")
+    log.info(f"Мінімальний поріг: {MIN_OWNER_PROB}% | Сторінок: {MAX_PAGES} | Міст: {len(MONITOR_SOURCES)}")
     log.info("=" * 60)
 
     seen_ads = load_seen_ads()
@@ -602,9 +849,11 @@ def run_monitor():
         session = make_session()  # Нова сесія = нові cookies
 
         new_count = 0
-        for base_url in MONITOR_URLS:
-            log.info(f"\n🌐 Сканування ({MAX_PAGES} стор.): {base_url}")
-            ad_stubs = fetch_listing_urls(session, base_url)
+        for src in MONITOR_SOURCES:
+            log.info(f"\n🏙️ {src['city']} — сканування ({MAX_PAGES} стор.)")
+            ad_stubs = fetch_listing_urls(session, src["url"])
+            for stub in ad_stubs:
+                stub["city"] = src["city"]
             stealth_sleep(2, 5)
 
             for stub in ad_stubs:

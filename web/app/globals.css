@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: #f7f9fb;
+  color: #191c1e;
+  /* Прибираємо горизонтальний overscroll: інакше свайп вправо тригерив
+     браузерну навігацію «назад», яка кидала pointercancel і відкидала
+     картку свайпу на місце замість того, щоб її зарахувати. */
+  overscroll-behavior-x: none;
+}
+
+/* Material Symbols base config (icons used across the design) */
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24;
+  vertical-align: middle;
+  user-select: none;
+}
+
+/* ─────────────────────────────────────────────
+   Рух
+   ───────────────────────────────────────────── */
+
+/* Плавний скрол для якірних переходів. */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Перехід між сторінками там, де браузер це вміє. Де ні — просто нічого
+   не станеться, тож окремої перевірки не потрібно. */
+@view-transition {
+  navigation: auto;
+}
+
+/* Видимий фокус із анімацією — клавіатурна навігація має бути не гіршою
+   за мишу, а не просто «теж працювати». */
+:focus-visible {
+  outline: 2px solid #1e3a8a;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Скелет завантаження. */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    #eceef0 25%,
+    #f7f9fb 50%,
+    #eceef0 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+/*
+   Вимкнення руху за системним налаштуванням.
+   Це не «краще б мати»: для людей з вестибулярними розладами анімація
+   викликає нудоту й запаморочення. Прибираємо рух, але лишаємо стани
+   видимими — тому не display:none, а нульова тривалість.
+*/
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* @view-transition — правило верхнього рівня, всередині @media воно
+     ламає розбір усього файлу. Гасимо самі анімації переходу. */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
